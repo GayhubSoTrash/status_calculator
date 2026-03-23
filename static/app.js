@@ -3,6 +3,7 @@ const socket = io();
 const ui = {
   entities: document.getElementById("entities"),
   createBtn: document.getElementById("createBtn"),
+  clearHistoryBtn: document.getElementById("clearHistoryBtn"),
   historyLog: document.getElementById("historyLog"),
   turnInput: document.getElementById("turnInput"),
   turnEndBtn: document.getElementById("turnEndBtn"),
@@ -155,6 +156,10 @@ ui.turnEndBtn.addEventListener("click", () => {
 
 ui.turnInput.addEventListener("change", () => {
   emit("set_turn", { turn: Number(ui.turnInput.value || 1) });
+});
+
+ui.clearHistoryBtn.addEventListener("click", () => {
+  emit("clear_history", {});
 });
 
 socket.on("state_updated", (state) => render(state));

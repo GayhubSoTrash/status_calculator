@@ -175,3 +175,13 @@ async def turn_end(sid: str, payload: dict[str, Any]) -> None:
             await emit_state()
     except Exception as exc:
         await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def clear_history(sid: str, payload: dict[str, Any] | None = None) -> None:
+    try:
+        async with state_lock:
+            state.clear_history()
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)

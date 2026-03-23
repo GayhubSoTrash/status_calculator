@@ -87,6 +87,9 @@ class GameState:
             raise ValueError("幕數請輸入正整數。")
         self.current_turn = turn
 
+    def clear_history(self) -> None:
+        self.history_logs.clear()
+
     def set_combo_choice(self, entity_id: int, choice: str) -> None:
         ent = self._get_entity(entity_id)
         ent.debuff_combo_choice = self._normalize_choice(choice)
