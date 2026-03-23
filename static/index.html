@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>減益計算器</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <button id="createBtn">新增目標</button>
+      <label for="turnInput">幕數</label>
+      <input id="turnInput" type="number" min="1" step="1">
+      <button id="turnEndBtn">幕結束</button>
+      <span id="statusText" class="status"></span>
+    </header>
+
+    <div class="content">
+      <main id="entities"></main>
+      <aside class="history-pane">
+        <div class="history-head">歷史記錄</div>
+        <pre id="historyLog"></pre>
+      </aside>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
