@@ -287,21 +287,22 @@ class GameState:
             ent,
             damage_delta=final_damage,
             stagger_delta=final_stagger,
-            allow_stagger_entry=True,
+            # For attack flow, log attack first, then enter-stagger log.
+            allow_stagger_entry=False,
         )
 
         # Attack log (includes per-turn total like debuffs).
         damage_type_label = self._damage_type_label(damage_type_key)
         self._append_history(
-            f"\"{ent.name}\" 受到 “{final_damage}/{final_stagger}” 點{damage_type_label}傷害，"
-            f"總計傷害為“{ent.damage}/ {ent.stager}”"
+            f"\"{ent.name}\" 受到 \"{final_damage}/{final_stagger}\" 點{damage_type_label}傷害，"
+            f"總計傷害為\"{ent.damage}/{ent.stager}\""
         )
 
         # Attack-triggered debuffs (rupture + corrosion).
         self._rupture_activation(ent)
         self._corrosion_activation(ent)
 
-        # Entry may already have happened via _apply_damage_stagger_to_entity.
+        # Attack-triggered stagger-state log must appear after attack log.
         if (not pre_staggered) and ent.mp_current <= 0 and not ent.is_staggered:
             self._enter_stagger_state(ent)
 
