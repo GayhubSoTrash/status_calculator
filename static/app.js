@@ -120,7 +120,7 @@ function openAttackModal(entity) {
   addField("額外混亂", extraStagger);
   addField("傷害倍率", damageMultiplier);
   addField("混亂倍率", staggerMultiplier);
-  addField("固定傷害(", fixedDamage);
+  addField("固定傷害", fixedDamage);
   addField("固定混亂", fixedStagger);
 
   const typeWrap = document.createElement("div");
