@@ -52,7 +52,19 @@ async def request_state(sid: str) -> None:
 async def create_entity(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:
-            state.create_entity(str(payload.get("name", "")))
+            state.create_entity(
+                str(payload.get("name", "")),
+                int(payload.get("hp_current", 0)),
+                int(payload.get("hp_max", 0)),
+                int(payload.get("mp_current", 0)),
+                int(payload.get("mp_max", 0)),
+                float(payload.get("slash_damage_res", 0)),
+                float(payload.get("slash_stagger_res", 0)),
+                float(payload.get("piercing_damage_res", 0)),
+                float(payload.get("piercing_stagger_res", 0)),
+                float(payload.get("blunt_damage_res", 0)),
+                float(payload.get("blunt_stagger_res", 0)),
+            )
             await emit_state()
     except Exception as exc:
         await sio.emit("action_error", {"message": str(exc)}, room=sid)
@@ -182,6 +194,64 @@ async def clear_history(sid: str, payload: dict[str, Any] | None = None) -> None
     try:
         async with state_lock:
             state.clear_history()
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def update_entity_stats(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            state.update_entity_stats(
+                _entity_id(payload),
+                int(payload.get("hp_current", 0)),
+                int(payload.get("hp_max", 0)),
+                int(payload.get("mp_current", 0)),
+                int(payload.get("mp_max", 0)),
+            )
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def update_entity_resistances(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            state.update_entity_resistances(
+                _entity_id(payload),
+                float(payload.get("slash_damage_res", 0)),
+                float(payload.get("slash_stagger_res", 0)),
+                float(payload.get("piercing_damage_res", 0)),
+                float(payload.get("piercing_stagger_res", 0)),
+                float(payload.get("blunt_damage_res", 0)),
+                float(payload.get("blunt_stagger_res", 0)),
+            )
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def attack_entity(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            state.attack_entity(
+                _entity_id(payload),
+                str(payload.get("weaponDamage", "0")),
+                float(payload.get("damageModifier", 0)),
+                float(payload.get("extraDamage", 0)),
+                float(payload.get("extraStagger", 0)),
+                float(payload.get("damageMultiplier", 1)),
+                float(payload.get("staggerMultiplier", 1)),
+                float(payload.get("fixedDamage", 0)),
+                float(payload.get("fixedStagger", 0)),
+                str(payload.get("damageType", "slash")),
+                bool(payload.get("criticalHit", False)),
+                bool(payload.get("dodgeFumble", False)),
+                bool(payload.get("blackDamage", False)),
+            )
             await emit_state()
     except Exception as exc:
         await sio.emit("action_error", {"message": str(exc)}, room=sid)
