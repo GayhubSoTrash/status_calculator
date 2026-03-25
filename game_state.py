@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 import random
+import re
 from typing import Any
 
 
@@ -226,10 +227,10 @@ class GameState:
         pre_staggered = ent.is_staggered
 
         # Parse dice input and roll once (server-authoritative).
-        weapon_kind, weapon_x, weapon_y = self._parse_dice(weapon_damage)
-        weapon_roll = self._roll_dice_sum(weapon_x, weapon_y)
-        weapon_min = weapon_x * 1
-        weapon_max = weapon_x * weapon_y
+        weapon_kind, weapon_x, weapon_y, weapon_offset = self._parse_dice(weapon_damage)
+        weapon_roll = self._roll_dice_sum(weapon_x, weapon_y) + weapon_offset
+        weapon_min = weapon_x * 1 + weapon_offset
+        weapon_max = weapon_x * weapon_y + weapon_offset
 
         # Damage-type mapping.
         damage_type_key = self._normalize_damage_type_key(damage_type)
@@ -282,54 +283,78 @@ class GameState:
         final_damage = max(0, int(math.floor(damage_calc + 1e-9)))
         final_stagger = max(0, int(math.floor(stagger_calc + 1e-9)))
 
-        # Apply to HP/MP.
-        ent.hp_current = max(0, ent.hp_current - final_damage)
-        ent.mp_current = max(0, ent.mp_current - final_stagger)
-
-        # Update internal totals used by history.
-        ent.damage += final_damage
-        ent.stager += final_stagger
+        self._apply_damage_stagger_to_entity(
+            ent,
+            damage_delta=final_damage,
+            stagger_delta=final_stagger,
+            allow_stagger_entry=True,
+        )
 
         # Attack log.
         damage_type_label = self._damage_type_label(damage_type_key)
         self._append_history(
-            f"\"{ent.name}\" 受到 \"{final_damage}/{final_stagger}\" 點\"{damage_type_label}\"傷害"
+            f"\"{ent.name}\" 受到 \"{final_damage}/{final_stagger}\" 點{damage_type_label}傷害"
         )
 
         # Attack-triggered debuffs (rupture + corrosion).
         self._rupture_activation(ent)
         self._corrosion_activation(ent)
 
-        # Enter stagger state only if it was not already active before this attack.
-        if (not pre_staggered) and ent.mp_current <= 0:
-            ent.is_staggered = True
-            ent.stagger_recover_turn = self.current_turn + 1
-            self._append_history(f"\"{ent.name}\" 進入混亂狀態")
+        # Entry may already have happened via _apply_damage_stagger_to_entity.
+        if (not pre_staggered) and ent.mp_current <= 0 and not ent.is_staggered:
+            self._enter_stagger_state(ent)
 
-    def _parse_dice(self, weapon_damage: str) -> tuple[str, int, int]:
+    def _parse_dice(self, weapon_damage: str) -> tuple[str, int, int, int]:
         """
-        Returns (kind, x, y) where kind is 'dice' or 'int'.
+        Returns (kind, x, y, offset) where kind is 'dice' or 'int'.
         For an integer, x=1 and y=value? We normalize by treating it as Xd1.
         """
         s = str(weapon_damage).strip().lower()
-        if "d" in s:
-            left, right = s.split("d", 1)
-            x = int(left)
-            y = int(right)
+        m = re.fullmatch(r"(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?", s)
+        if m:
+            x = int(m.group(1))
+            y = int(m.group(2))
+            offset_text = m.group(3)
+            offset = 0
+            if offset_text:
+                offset = int(offset_text.replace(" ", ""))
             if x <= 0 or y <= 0:
                 raise ValueError("骰子格式無效。")
-            return ("dice", x, y)
+            return ("dice", x, y, offset)
         v = int(s)
         if v < 0:
             raise ValueError("武器傷害不能小於 0。")
         # Represent integer as Xd1 where min=max=v.
         # Use x=v and y=1 so min=v and max=v.
-        return ("int", v, 1)
+        return ("int", v, 1, 0)
 
     def _roll_dice_sum(self, x: int, y: int) -> int:
         if y == 1:
             return x
         return sum(random.randint(1, y) for _ in range(x))
+
+    def _enter_stagger_state(self, ent: Entity) -> None:
+        if ent.is_staggered:
+            return
+        ent.is_staggered = True
+        ent.stagger_recover_turn = self.current_turn + 1
+        self._append_history(f"\"{ent.name}\" 進入混亂狀態")
+
+    def _apply_damage_stagger_to_entity(
+        self,
+        ent: Entity,
+        damage_delta: int,
+        stagger_delta: int,
+        allow_stagger_entry: bool = True,
+    ) -> None:
+        d = max(0, int(damage_delta))
+        s = max(0, int(stagger_delta))
+        ent.hp_current = max(0, ent.hp_current - d)
+        ent.mp_current = max(0, ent.mp_current - s)
+        ent.damage += d
+        ent.stager += s
+        if allow_stagger_entry and (not ent.is_staggered) and ent.mp_current <= 0:
+            self._enter_stagger_state(ent)
 
     def _normalize_damage_type_key(self, damage_type: str) -> str:
         d = str(damage_type).strip().lower()
@@ -540,7 +565,9 @@ class GameState:
     def _burn_activation(self, ent: Entity, consume: bool = True) -> None:
         if ent.debuff.Burn > 0:
             before_stack = ent.debuff.Burn
-            ent.damage += ent.debuff.Burn
+            self._apply_damage_stagger_to_entity(
+                ent, damage_delta=ent.debuff.Burn, stagger_delta=0, allow_stagger_entry=True
+            )
             if consume:
                 ent.debuff.Burn = ent.debuff.Burn * 2 // 3
             self._record_activation(
@@ -550,7 +577,9 @@ class GameState:
     def _bleed_activation(self, ent: Entity) -> None:
         if ent.debuff.Bleed > 0:
             before_stack = ent.debuff.Bleed
-            ent.damage += ent.debuff.Bleed
+            self._apply_damage_stagger_to_entity(
+                ent, damage_delta=ent.debuff.Bleed, stagger_delta=0, allow_stagger_entry=True
+            )
             ent.debuff.Bleed = math.ceil(ent.debuff.Bleed * 2 / 3)
             self._record_activation(
                 ent, "出血", damage_delta=before_stack, stack_after=ent.debuff.Bleed
@@ -564,7 +593,9 @@ class GameState:
     def _rupture_activation(self, ent: Entity) -> None:
         if ent.debuff.Rupture > 0:
             before_stack = ent.debuff.Rupture
-            ent.damage += ent.debuff.Rupture
+            self._apply_damage_stagger_to_entity(
+                ent, damage_delta=ent.debuff.Rupture, stagger_delta=0, allow_stagger_entry=True
+            )
             ent.debuff.Rupture = math.ceil(ent.debuff.Rupture * 2 / 3)
             self._record_activation(
                 ent, "破裂", damage_delta=before_stack, stack_after=ent.debuff.Rupture
@@ -578,8 +609,12 @@ class GameState:
     def _corrosion_activation(self, ent: Entity) -> None:
         if ent.debuff.Corrosion > 0:
             before_stack = ent.debuff.Corrosion
-            ent.damage += ent.debuff.Corrosion
-            ent.stager += ent.debuff.Corrosion
+            self._apply_damage_stagger_to_entity(
+                ent,
+                damage_delta=ent.debuff.Corrosion,
+                stagger_delta=ent.debuff.Corrosion,
+                allow_stagger_entry=True,
+            )
             self._record_activation(
                 ent,
                 "腐蝕",
@@ -604,7 +639,9 @@ class GameState:
             before_stack = ent.debuff.UTH
             burn_stack = ent.debuff.Burn
             stager_delta = burn_stack
-            ent.stager += stager_delta
+            self._apply_damage_stagger_to_entity(
+                ent, damage_delta=0, stagger_delta=stager_delta, allow_stagger_entry=True
+            )
             ent.debuff.UTH = max(0, ent.debuff.UTH - 1)
             # Log with merged damage/stagger format (damage_delta=0).
             self._record_activation(
@@ -618,8 +655,12 @@ class GameState:
     def _tremor_burst(self, ent: Entity, consume: bool) -> None:
         if ent.debuff.Tremor_Burn > 0:
             before_stack = ent.debuff.Tremor_Burn
-            ent.stager += ent.debuff.Tremor_Burn
-            ent.damage += ent.debuff.Tremor_Burn
+            self._apply_damage_stagger_to_entity(
+                ent,
+                damage_delta=ent.debuff.Tremor_Burn,
+                stagger_delta=ent.debuff.Tremor_Burn,
+                allow_stagger_entry=True,
+            )
             self._burn_activation(ent, True)
             if consume:
                 ent.debuff.Tremor_Burn = ent.debuff.Tremor_Burn * 2 // 3
@@ -632,7 +673,9 @@ class GameState:
             )
         elif ent.debuff.Tremor > 0:
             before_stack = ent.debuff.Tremor
-            ent.stager += ent.debuff.Tremor
+            self._apply_damage_stagger_to_entity(
+                ent, damage_delta=0, stagger_delta=ent.debuff.Tremor, allow_stagger_entry=True
+            )
             if consume:
                 ent.debuff.Tremor = ent.debuff.Tremor * 2 // 3
             self._record_activation(

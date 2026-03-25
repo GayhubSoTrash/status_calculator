@@ -25,13 +25,15 @@ const debuffLabels = {
 function parseDiceRange(s) {
   const str = String(s || "").trim().toLowerCase();
   if (!str) return null;
-  if (str.includes("d")) {
-    const parts = str.split("d");
-    if (parts.length !== 2) return null;
-    const x = Number(parts[0]);
-    const y = Number(parts[1]);
-    if (!Number.isFinite(x) || !Number.isFinite(y) || x <= 0 || y <= 0) return null;
-    return { min: x * 1, max: x * y };
+  const m = str.match(/^(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?$/i);
+  if (m) {
+    const x = Number(m[1]);
+    const y = Number(m[2]);
+    const offset = m[3] ? Number(String(m[3]).replace(/\s+/g, "")) : 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(offset) || x <= 0 || y <= 0) {
+      return null;
+    }
+    return { min: x * 1 + offset, max: x * y + offset };
   }
   const v = Number(str);
   if (!Number.isFinite(v) || v < 0) return null;
@@ -103,20 +105,20 @@ function openAttackModal(entity) {
     form.appendChild(f);
   }
 
-  addField("武器傷害(weapon damage)", weaponDamage);
-  addField("傷害加值(damage modifier)", damageModifier);
-  addField("額外傷害(extra damage)", extraDamage);
-  addField("額外混亂(extra stagger)", extraStagger);
-  addField("傷害倍率(damage multiplier)", damageMultiplier);
-  addField("混亂倍率(stagger multiplier)", staggerMultiplier);
-  addField("固定傷害(fixed damage)", fixedDamage);
-  addField("固定混亂(fixed stagger)", fixedStagger);
+  addField("武器傷害", weaponDamage);
+  addField("傷害加值", damageModifier);
+  addField("額外傷害", extraDamage);
+  addField("額外混亂", extraStagger);
+  addField("傷害倍率", damageMultiplier);
+  addField("混亂倍率", staggerMultiplier);
+  addField("固定傷害(", fixedDamage);
+  addField("固定混亂", fixedStagger);
 
   const typeWrap = document.createElement("div");
   typeWrap.style.gridColumn = "1 / -1";
   typeWrap.className = "field";
   const typeLabel = document.createElement("label");
-  typeLabel.textContent = "傷害類型(damage type)";
+  typeLabel.textContent = "傷害類型";
   typeWrap.appendChild(typeLabel);
 
   const toggleRow = document.createElement("div");
@@ -147,17 +149,17 @@ function openAttackModal(entity) {
   const crit = document.createElement("input");
   crit.type = "checkbox";
   const critLabel = document.createElement("label");
-  critLabel.textContent = "暴擊(critical hit)";
+  critLabel.textContent = "暴擊";
   critLabel.style.marginRight = "14px";
   const dodge = document.createElement("input");
   dodge.type = "checkbox";
   const dodgeLabel = document.createElement("label");
-  dodgeLabel.textContent = "迴避絕對失敗(dodge fumble)";
+  dodgeLabel.textContent = "迴避絕對失敗";
   dodgeLabel.style.marginRight = "14px";
   const black = document.createElement("input");
   black.type = "checkbox";
   const blackLabel = document.createElement("label");
-  blackLabel.textContent = "黑傷(black damage)";
+  blackLabel.textContent = "黑傷";
 
   toggles.appendChild(crit);
   toggles.appendChild(critLabel);
@@ -170,12 +172,12 @@ function openAttackModal(entity) {
 
   const preview = document.createElement("div");
   preview.className = "preview";
-  preview.textContent = "預計傷害：\"0\"/\"0\"";
+  preview.textContent = "預計傷害：0/0";
 
   function calcPreview() {
     const range = parseDiceRange(weaponDamage.value);
     if (!range) {
-      preview.textContent = "預計傷害：\"?\"/\"?\"";
+      preview.textContent = "預計傷害：?/?";
       return;
     }
 
@@ -237,7 +239,7 @@ function openAttackModal(entity) {
     const maxS =
       floor0((weaponMaxUsed + dmgModUsed + exS) * stMul * baseStaggerRes + fixS);
 
-    preview.textContent = `預計傷害：\"${minD}~${maxD}\"/\"${minS}~${maxS}\"`;
+    preview.textContent = `預計傷害：${minD}~${maxD}/${minS}~${maxS}`;
   }
 
   const inputsToWatch = [
@@ -459,7 +461,7 @@ function renderEntity(entity) {
     row.style.marginTop = "6px";
 
     const a = document.createElement("span");
-    a.textContent = `${labelText}:\"`;
+    a.textContent = `${labelText}:`;
     row.appendChild(a);
 
     const dmgInp = makeResInput(damageValue);
@@ -467,16 +469,12 @@ function renderEntity(entity) {
     row.appendChild(dmgInp);
 
     const mid = document.createElement("span");
-    mid.textContent = "\"/\"";
+    mid.textContent = "/";
     row.appendChild(mid);
 
     const stInp = makeResInput(staggerValue);
     resInputs[kStagger] = stInp;
     row.appendChild(stInp);
-
-    const b = document.createElement("span");
-    b.textContent = '\"';
-    row.appendChild(b);
 
     panel.appendChild(row);
   }
