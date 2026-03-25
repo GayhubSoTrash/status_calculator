@@ -290,10 +290,9 @@ class GameState:
             allow_stagger_entry=True,
         )
 
-        # Attack log.
-        damage_type_label = self._damage_type_label(damage_type_key)
+        # Attack log (includes per-turn total like debuffs).
         self._append_history(
-            f"\"{ent.name}\" 受到 \"{final_damage}/{final_stagger}\" 點{damage_type_label}傷害"
+            f"\"{ent.name}\" 受到 \"{final_damage}/{final_stagger}\" 點傷害，總計傷害為\"{ent.damage}/{ent.stager}\""
         )
 
         # Attack-triggered debuffs (rupture + corrosion).

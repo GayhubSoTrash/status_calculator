@@ -282,7 +282,6 @@ function openAttackModal(entity) {
       dodgeFumble: dodge.checked,
       blackDamage: black.checked,
     });
-    overlay.remove();
   });
   const cancelBtn = document.createElement("button");
   cancelBtn.textContent = "取消";
