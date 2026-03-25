@@ -3,6 +3,8 @@ const socket = io();
 const ui = {
   entities: document.getElementById("entities"),
   createBtn: document.getElementById("createBtn"),
+  undoBtn: document.getElementById("undoBtn"),
+  redoBtn: document.getElementById("redoBtn"),
   clearHistoryBtn: document.getElementById("clearHistoryBtn"),
   historyLog: document.getElementById("historyLog"),
   turnInput: document.getElementById("turnInput"),
@@ -20,6 +22,9 @@ const debuffLabels = {
   Rupture: "破裂",
   Corrosion: "腐蝕",
   UTH: "超高溫",
+  Protection: "保護",
+  StaggerProtection: "振奮",
+  Vulnerable: "易損",
 };
 
 function parseDiceRange(s) {
@@ -318,6 +323,8 @@ function renderDebuffControls(entity, key) {
   } else if (key === "Burn") {
     row.appendChild(rowButton("觸發燒傷(消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Burn", consume: true })));
     row.appendChild(rowButton("觸發燒傷 (不消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Burn", consume: false })));
+  } else if (key === "Protection" || key === "StaggerProtection" || key === "Vulnerable") {
+    // Turn-based passive statuses: cannot be activated manually.
   } else {
     row.appendChild(rowButton(`觸發${debuffLabels[key]}`, () => emit("activate_debuff", { entityId: entity.id, debuffKey: key })));
   }
@@ -500,9 +507,18 @@ function renderEntity(entity) {
     inp.addEventListener("change", syncRes);
   }
 
-  const pendingKeys = ["Tremor", "Tremor_Burn", "Burn", "Bleed", "Rupture", "Corrosion"];
-  // Include UTH next-turn stacks.
-  pendingKeys.push("UTH");
+  const pendingKeys = [
+    "Tremor",
+    "Tremor_Burn",
+    "Burn",
+    "Bleed",
+    "Rupture",
+    "Corrosion",
+    "UTH",
+    "Protection",
+    "StaggerProtection",
+    "Vulnerable",
+  ];
   const hasPending = pendingKeys.some((k) => entity.pending[k] > 0);
   if (hasPending) {
     const pendingTitle = document.createElement("div");
@@ -515,7 +531,18 @@ function renderEntity(entity) {
     }
   }
 
-  const keys = ["Tremor", "Tremor_Burn", "Burn", "Bleed", "Rupture", "Corrosion", "UTH"];
+  const keys = [
+    "Tremor",
+    "Tremor_Burn",
+    "Burn",
+    "Bleed",
+    "Rupture",
+    "Corrosion",
+    "UTH",
+    "Protection",
+    "StaggerProtection",
+    "Vulnerable",
+  ];
   for (const key of keys) {
     const row = renderDebuffControls(entity, key);
     if (row) panel.appendChild(row);
@@ -527,6 +554,8 @@ function renderEntity(entity) {
 function render(state) {
   currentState = state;
   ui.turnInput.value = String(state.turn);
+  if (ui.undoBtn) ui.undoBtn.disabled = Number(state.undo_count || 0) <= 0;
+  if (ui.redoBtn) ui.redoBtn.disabled = Number(state.redo_count || 0) <= 0;
   ui.entities.innerHTML = "";
   for (const entity of state.entities) {
     ui.entities.appendChild(renderEntity(entity));
@@ -541,6 +570,44 @@ ui.createBtn.addEventListener("click", () => {
 });
 
 function openCreateEntityModal() {
+  function submitCreate() {
+    const payload = {
+      name: name.value.trim(),
+      hp_max: Number(hpMax.value),
+      hp_current: Number(hpCur.value),
+      mp_max: Number(mpMax.value),
+      mp_current: Number(mpCur.value),
+      slash_damage_res: Number(slashDamageRes.value),
+      slash_stagger_res: Number(slashStaggerRes.value),
+      piercing_damage_res: Number(piercingDamageRes.value),
+      piercing_stagger_res: Number(piercingStaggerRes.value),
+      blunt_damage_res: Number(bluntDamageRes.value),
+      blunt_stagger_res: Number(bluntStaggerRes.value),
+    };
+    const nums = [
+      payload.hp_max,
+      payload.hp_current,
+      payload.mp_max,
+      payload.mp_current,
+      payload.slash_damage_res,
+      payload.slash_stagger_res,
+      payload.piercing_damage_res,
+      payload.piercing_stagger_res,
+      payload.blunt_damage_res,
+      payload.blunt_stagger_res,
+    ];
+    if (!payload.name) {
+      alert("請輸入目標名稱。");
+      return;
+    }
+    if (nums.some((v) => Number.isNaN(v))) {
+      alert("數值欄位有誤，請重新檢查。");
+      return;
+    }
+    emit("create_entity", payload);
+    overlay.remove();
+  }
+
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const modal = document.createElement("div");
@@ -586,43 +653,7 @@ function openCreateEntityModal() {
   const actions = document.createElement("div");
   actions.className = "modal-actions";
   const cancel = rowButton("取消", () => overlay.remove());
-  const confirm = rowButton("建立", () => {
-    const payload = {
-      name: name.value.trim(),
-      hp_max: Number(hpMax.value),
-      hp_current: Number(hpCur.value),
-      mp_max: Number(mpMax.value),
-      mp_current: Number(mpCur.value),
-      slash_damage_res: Number(slashDamageRes.value),
-      slash_stagger_res: Number(slashStaggerRes.value),
-      piercing_damage_res: Number(piercingDamageRes.value),
-      piercing_stagger_res: Number(piercingStaggerRes.value),
-      blunt_damage_res: Number(bluntDamageRes.value),
-      blunt_stagger_res: Number(bluntStaggerRes.value),
-    };
-    const nums = [
-      payload.hp_max,
-      payload.hp_current,
-      payload.mp_max,
-      payload.mp_current,
-      payload.slash_damage_res,
-      payload.slash_stagger_res,
-      payload.piercing_damage_res,
-      payload.piercing_stagger_res,
-      payload.blunt_damage_res,
-      payload.blunt_stagger_res,
-    ];
-    if (!payload.name) {
-      alert("請輸入目標名稱。");
-      return;
-    }
-    if (nums.some((v) => Number.isNaN(v))) {
-      alert("數值欄位有誤，請重新檢查。");
-      return;
-    }
-    emit("create_entity", payload);
-    overlay.remove();
-  });
+  const confirm = rowButton("建立", () => submitCreate());
   actions.appendChild(cancel);
   actions.appendChild(confirm);
 
@@ -633,7 +664,14 @@ function openCreateEntityModal() {
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) overlay.remove();
   });
+  overlay.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitCreate();
+    }
+  });
   document.body.appendChild(overlay);
+  name.focus();
 }
 
 ui.turnEndBtn.addEventListener("click", () => {
@@ -643,6 +681,13 @@ ui.turnEndBtn.addEventListener("click", () => {
 ui.turnInput.addEventListener("change", () => {
   emit("set_turn", { turn: Number(ui.turnInput.value || 1) });
 });
+
+if (ui.undoBtn) {
+  ui.undoBtn.addEventListener("click", () => emit("undo", {}));
+}
+if (ui.redoBtn) {
+  ui.redoBtn.addEventListener("click", () => emit("redo", {}));
+}
 
 ui.clearHistoryBtn.addEventListener("click", () => {
   emit("clear_history", {});

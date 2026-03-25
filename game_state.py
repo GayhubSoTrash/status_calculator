@@ -7,7 +7,8 @@ import re
 from typing import Any
 
 
-DEBUFF_OPTIONS = ("震顫", "燒傷", "出血", "破裂", "腐蝕", "超高溫")
+DEBUFF_OPTIONS = ("震顫", "燒傷", "出血", "破裂", "腐蝕", "超高溫", "保護", "振奮", "易損")
+MAX_UNDO_STEPS = 3
 
 
 @dataclass
@@ -19,6 +20,9 @@ class Debuff:
     Rupture: int = 0
     Corrosion: int = 0
     UTH: int = 0
+    Protection: int = 0
+    StaggerProtection: int = 0
+    Vulnerable: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -29,6 +33,9 @@ class Debuff:
             "Rupture": self.Rupture,
             "Corrosion": self.Corrosion,
             "UTH": self.UTH,
+            "Protection": self.Protection,
+            "StaggerProtection": self.StaggerProtection,
+            "Vulnerable": self.Vulnerable,
         }
 
 
@@ -96,14 +103,18 @@ class GameState:
         self.history_logs: list[str] = []
         self.current_turn: int = 1
         self._next_id: int = 1
+        self.undo_stack: list[tuple[str, dict[str, Any]]] = []
+        self.redo_stack: list[tuple[str, dict[str, Any]]] = []
 
     def snapshot(self) -> dict[str, Any]:
         self._normalize_tremor_pairs()
         return {
             "turn": self.current_turn,
             "entities": [e.as_dict() for e in self.entities],
-            "history_logs": self.history_logs,
+            "history_logs": list(self.history_logs),
             "debuff_options": DEBUFF_OPTIONS,
+            "undo_count": len(self.undo_stack),
+            "redo_count": len(self.redo_stack),
         }
 
     def create_entity(
@@ -250,15 +261,17 @@ class GameState:
         else:
             weapon_used = weapon_roll
         dmg_mod_used = damage_modifier
+        attack_extra_damage = extra_damage + ent.debuff.Vulnerable - ent.debuff.Protection
+        attack_extra_stagger = extra_stagger - ent.debuff.StaggerProtection
 
         damage_calc = (
-            (weapon_used + dmg_mod_used + extra_damage)
+            (weapon_used + dmg_mod_used + attack_extra_damage)
             * damage_multiplier
             * base_damage_res
             + fixed_damage
         )
         stagger_calc = (
-            (weapon_used + dmg_mod_used + extra_stagger)
+            (weapon_used + dmg_mod_used + attack_extra_stagger)
             * stagger_multiplier
             * base_stagger_res
             + fixed_stagger
@@ -330,13 +343,15 @@ class GameState:
             weapon_max_used = weapon_max
 
         dmg_mod_used = damage_modifier
+        attack_extra_damage = extra_damage + ent.debuff.Vulnerable - ent.debuff.Protection
+        attack_extra_stagger = extra_stagger - ent.debuff.StaggerProtection
 
         min_damage = max(
             0,
             int(
                 math.floor(
                     (
-                        (weapon_min_used + dmg_mod_used + extra_damage)
+                        (weapon_min_used + dmg_mod_used + attack_extra_damage)
                         * damage_multiplier
                         * base_damage_res
                         + fixed_damage
@@ -350,7 +365,7 @@ class GameState:
             int(
                 math.floor(
                     (
-                        (weapon_max_used + dmg_mod_used + extra_damage)
+                        (weapon_max_used + dmg_mod_used + attack_extra_damage)
                         * damage_multiplier
                         * base_damage_res
                         + fixed_damage
@@ -364,7 +379,7 @@ class GameState:
             int(
                 math.floor(
                     (
-                        (weapon_min_used + dmg_mod_used + extra_stagger)
+                        (weapon_min_used + dmg_mod_used + attack_extra_stagger)
                         * stagger_multiplier
                         * base_stagger_res
                         + fixed_stagger
@@ -378,7 +393,7 @@ class GameState:
             int(
                 math.floor(
                     (
-                        (weapon_max_used + dmg_mod_used + extra_stagger)
+                        (weapon_max_used + dmg_mod_used + attack_extra_stagger)
                         * stagger_multiplier
                         * base_stagger_res
                         + fixed_stagger
@@ -519,6 +534,32 @@ class GameState:
     def clear_history(self) -> None:
         self.history_logs.clear()
 
+    def record_undo_checkpoint(self, operation_type: str) -> None:
+        self.undo_stack.append((operation_type, self._export_state()))
+        if len(self.undo_stack) > MAX_UNDO_STEPS:
+            self.undo_stack = self.undo_stack[-MAX_UNDO_STEPS:]
+        self.redo_stack.clear()
+
+    def undo_last(self) -> None:
+        if not self.undo_stack:
+            raise ValueError("沒有可撤回的操作。")
+        operation_type, snapshot_before = self.undo_stack.pop()
+        self.redo_stack.append((operation_type, self._export_state()))
+        if len(self.redo_stack) > MAX_UNDO_STEPS:
+            self.redo_stack = self.redo_stack[-MAX_UNDO_STEPS:]
+        self._import_state(snapshot_before)
+        self._append_history(f"撤回了一次“{operation_type}”")
+
+    def redo_last(self) -> None:
+        if not self.redo_stack:
+            raise ValueError("沒有可重做的操作。")
+        operation_type, snapshot_after = self.redo_stack.pop()
+        self.undo_stack.append((operation_type, self._export_state()))
+        if len(self.undo_stack) > MAX_UNDO_STEPS:
+            self.undo_stack = self.undo_stack[-MAX_UNDO_STEPS:]
+        self._import_state(snapshot_after)
+        self._append_history(f"撤回了一次“{operation_type}”")
+
     def set_combo_choice(self, entity_id: int, choice: str) -> None:
         ent = self._get_entity(entity_id)
         ent.debuff_combo_choice = self._normalize_choice(choice)
@@ -527,14 +568,14 @@ class GameState:
         ent = self._get_entity(entity_id)
         selected = self._normalize_choice(choice or ent.debuff_combo_choice)
         ent.debuff_combo_choice = selected
-        self._grant_debuff_by_choice(ent, selected)
+        self._grant_stack_by_choice(ent.debuff, ent, selected, for_pending=False)
         self._normalize_tremor_pairs()
 
     def grant_next(self, entity_id: int, choice: str | None = None) -> None:
         ent = self._get_entity(entity_id)
         selected = self._normalize_choice(choice or ent.debuff_combo_choice)
         ent.debuff_combo_choice = selected
-        self._grant_pending_by_choice(ent, selected)
+        self._grant_stack_by_choice(ent.pending, ent, selected, for_pending=True)
         self._normalize_tremor_pairs()
 
     def change_debuff(self, entity_id: int, debuff_key: str, delta: int) -> None:
@@ -565,6 +606,8 @@ class GameState:
             self._corrosion_activation(ent)
         elif debuff_key == "UTH":
             self._uth_activation(ent)
+        elif debuff_key in {"Protection", "StaggerProtection", "Vulnerable"}:
+            raise ValueError("此效果不能手動觸發。")
         else:
             raise ValueError("未知減益。")
         self._normalize_tremor_pairs()
@@ -585,6 +628,7 @@ class GameState:
         self._append_history(f"-----第{self.current_turn}幕結束結算-----")
         for ent in self.entities:
             self._apply_turn_end_for_entity(ent)
+            self._clear_turn_end_temporary_stacks(ent)
         self._append_history(f"-------第{self.current_turn + 1}幕開始-------")
         for ent in self.entities:
             self._flush_pending_debuffs(ent)
@@ -603,7 +647,17 @@ class GameState:
             else:
                 target.Tremor = max(0, target.Tremor + delta)
             return
-        if debuff_key not in {"Tremor_Burn", "Burn", "Bleed", "Rupture", "Corrosion", "UTH"}:
+        if debuff_key not in {
+            "Tremor_Burn",
+            "Burn",
+            "Bleed",
+            "Rupture",
+            "Corrosion",
+            "UTH",
+            "Protection",
+            "StaggerProtection",
+            "Vulnerable",
+        }:
             raise ValueError("未知減益。")
         current = getattr(target, debuff_key)
         setattr(target, debuff_key, max(0, current + delta))
@@ -658,33 +712,28 @@ class GameState:
         else:
             ent.pending.Tremor += 1
 
-    def _grant_debuff_by_choice(self, ent: Entity, choice: str) -> None:
+    def _grant_stack_by_choice(self, target: Debuff, ent: Entity, choice: str, for_pending: bool) -> None:
         if choice == "震顫":
-            self._inc_tremor_on_debuff(ent)
+            if for_pending:
+                self._inc_tremor_on_pending(ent)
+            else:
+                self._inc_tremor_on_debuff(ent)
         elif choice == "燒傷":
-            ent.debuff.Burn += 1
+            target.Burn += 1
         elif choice == "出血":
-            ent.debuff.Bleed += 1
+            target.Bleed += 1
         elif choice == "破裂":
-            ent.debuff.Rupture += 1
+            target.Rupture += 1
         elif choice == "腐蝕":
-            ent.debuff.Corrosion += 1
+            target.Corrosion += 1
         elif choice == "超高溫":
-            ent.debuff.UTH += 1
-
-    def _grant_pending_by_choice(self, ent: Entity, choice: str) -> None:
-        if choice == "震顫":
-            self._inc_tremor_on_pending(ent)
-        elif choice == "燒傷":
-            ent.pending.Burn += 1
-        elif choice == "出血":
-            ent.pending.Bleed += 1
-        elif choice == "破裂":
-            ent.pending.Rupture += 1
-        elif choice == "腐蝕":
-            ent.pending.Corrosion += 1
-        elif choice == "超高溫":
-            ent.pending.UTH += 1
+            target.UTH += 1
+        elif choice == "保護":
+            target.Protection += 1
+        elif choice == "振奮":
+            target.StaggerProtection += 1
+        elif choice == "易損":
+            target.Vulnerable += 1
 
     def _burn_activation(self, ent: Entity, consume: bool = True) -> None:
         if ent.debuff.Burn > 0:
@@ -837,6 +886,15 @@ class GameState:
         if p.UTH > 0:
             d.UTH += p.UTH
             self._record_next_turn_gain(ent, "超高溫", p.UTH, d.UTH)
+        if p.Protection > 0:
+            d.Protection += p.Protection
+            self._record_next_turn_gain(ent, "保護", p.Protection, d.Protection)
+        if p.StaggerProtection > 0:
+            d.StaggerProtection += p.StaggerProtection
+            self._record_next_turn_gain(ent, "振奮", p.StaggerProtection, d.StaggerProtection)
+        if p.Vulnerable > 0:
+            d.Vulnerable += p.Vulnerable
+            self._record_next_turn_gain(ent, "易損", p.Vulnerable, d.Vulnerable)
         ent.pending = Debuff()
 
     def _apply_turn_end_for_entity(self, ent: Entity) -> None:
@@ -854,6 +912,66 @@ class GameState:
             ent.stagger_recover_turn = None
             ent.mp_current = ent.mp_max
             self._append_history(f"\"{ent.name}\"從混亂狀態恢復")
+
+    def _clear_turn_end_temporary_stacks(self, ent: Entity) -> None:
+        ent.debuff.Protection = 0
+        ent.debuff.StaggerProtection = 0
+        ent.debuff.Vulnerable = 0
+
+    def _export_state(self) -> dict[str, Any]:
+        return {
+            "current_turn": self.current_turn,
+            "next_id": self._next_id,
+            "entities": [e.as_dict() for e in self.entities],
+            "history_logs": list(self.history_logs),
+        }
+
+    def _import_state(self, data: dict[str, Any]) -> None:
+        self.current_turn = int(data.get("current_turn", 1))
+        self._next_id = int(data.get("next_id", 1))
+        self.history_logs = list(data.get("history_logs", []))
+        self.entities = [self._entity_from_dict(raw) for raw in data.get("entities", [])]
+
+    def _debuff_from_dict(self, raw: dict[str, Any]) -> Debuff:
+        return Debuff(
+            Tremor=int(raw.get("Tremor", 0)),
+            Tremor_Burn=int(raw.get("Tremor_Burn", 0)),
+            Burn=int(raw.get("Burn", 0)),
+            Bleed=int(raw.get("Bleed", 0)),
+            Rupture=int(raw.get("Rupture", 0)),
+            Corrosion=int(raw.get("Corrosion", 0)),
+            UTH=int(raw.get("UTH", 0)),
+            Protection=int(raw.get("Protection", 0)),
+            StaggerProtection=int(raw.get("StaggerProtection", 0)),
+            Vulnerable=int(raw.get("Vulnerable", 0)),
+        )
+
+    def _entity_from_dict(self, raw: dict[str, Any]) -> Entity:
+        res = raw.get("resistances", {})
+        ent = Entity(
+            id=int(raw.get("id", 0)),
+            name=str(raw.get("name", "")),
+            damage=int(raw.get("damage", 0)),
+            stager=int(raw.get("stager", 0)),
+            hp_current=int(raw.get("hp_current", 0)),
+            hp_max=int(raw.get("hp_max", 0)),
+            mp_current=int(raw.get("mp_current", 0)),
+            mp_max=int(raw.get("mp_max", 0)),
+            slash_damage_res=float(res.get("slash_damage_res", 1.0)),
+            slash_stagger_res=float(res.get("slash_stagger_res", 1.0)),
+            piercing_damage_res=float(res.get("piercing_damage_res", 1.0)),
+            piercing_stagger_res=float(res.get("piercing_stagger_res", 1.0)),
+            blunt_damage_res=float(res.get("blunt_damage_res", 1.0)),
+            blunt_stagger_res=float(res.get("blunt_stagger_res", 1.0)),
+            is_staggered=bool(raw.get("is_staggered", False)),
+            stagger_recover_turn=raw.get("stagger_recover_turn"),
+            debuff=self._debuff_from_dict(raw.get("debuff", {})),
+            pending=self._debuff_from_dict(raw.get("pending", {})),
+            debuff_combo_choice=self._normalize_choice(str(raw.get("debuff_combo_choice", DEBUFF_OPTIONS[0]))),
+        )
+        if ent.stagger_recover_turn is not None:
+            ent.stagger_recover_turn = int(ent.stagger_recover_turn)
+        return ent
 
     def _normalize_tremor_pairs(self) -> None:
         for ent in self.entities:

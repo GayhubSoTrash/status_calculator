@@ -74,6 +74,7 @@ async def create_entity(sid: str, payload: dict[str, Any]) -> None:
 async def delete_entity(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:
+            state.record_undo_checkpoint("刪除目標")
             state.delete_entity(_entity_id(payload))
             await emit_state()
     except Exception as exc:
@@ -158,6 +159,7 @@ async def change_pending(sid: str, payload: dict[str, Any]) -> None:
 async def activate_debuff(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:
+            state.record_undo_checkpoint("觸發效果")
             state.activate(
                 _entity_id(payload),
                 str(payload.get("debuffKey", "")),
@@ -182,6 +184,7 @@ async def conversion(sid: str, payload: dict[str, Any]) -> None:
 async def turn_end(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:
+            state.record_undo_checkpoint("幕結算")
             turn_value = payload.get("turn")
             state.turn_end(int(turn_value) if turn_value is not None else None)
             await emit_state()
@@ -237,6 +240,7 @@ async def update_entity_resistances(sid: str, payload: dict[str, Any]) -> None:
 async def attack_entity(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:
+            state.record_undo_checkpoint("攻擊")
             state.attack_entity(
                 _entity_id(payload),
                 str(payload.get("weaponDamage", "0")),
@@ -252,6 +256,26 @@ async def attack_entity(sid: str, payload: dict[str, Any]) -> None:
                 bool(payload.get("dodgeFumble", False)),
                 bool(payload.get("blackDamage", False)),
             )
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def undo(sid: str, payload: dict[str, Any] | None = None) -> None:
+    try:
+        async with state_lock:
+            state.undo_last()
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def redo(sid: str, payload: dict[str, Any] | None = None) -> None:
+    try:
+        async with state_lock:
+            state.redo_last()
             await emit_state()
     except Exception as exc:
         await sio.emit("action_error", {"message": str(exc)}, room=sid)
