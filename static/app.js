@@ -558,41 +558,104 @@ function render(state) {
 }
 
 ui.createBtn.addEventListener("click", () => {
-  const name = window.prompt("目標名稱:");
-  if (!name) return;
+  openCreateEntityModal();
+});
 
-  const hpMax = Number(window.prompt("HP最大值: (hp_max)", "100"));
-  const hpCur = Number(window.prompt("HP當前值: (hp_current)", String(hpMax)));
-  const mpMax = Number(window.prompt("MP最大值: (mp_max)", "100"));
-  const mpCur = Number(window.prompt("MP當前值: (mp_current)", String(mpMax)));
+function openCreateEntityModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const modal = document.createElement("div");
+  modal.className = "modal";
 
-  const slashDamageRes = Number(window.prompt("斬擊-傷害抗性: (slash_damage_res)", "1.0"));
-  const slashStaggerRes = Number(window.prompt("斬擊-混亂抗性: (slash_stagger_res)", "1.0"));
-  const piercingDamageRes = Number(window.prompt("突刺-傷害抗性: (piercing_damage_res)", "1.0"));
-  const piercingStaggerRes = Number(window.prompt("突刺-混亂抗性: (piercing_stagger_res)", "1.0"));
-  const bluntDamageRes = Number(window.prompt("打擊-傷害抗性: (blunt_damage_res)", "1.0"));
-  const bluntStaggerRes = Number(window.prompt("打擊-混亂抗性: (blunt_stagger_res)", "1.0"));
+  const title = document.createElement("div");
+  title.className = "modal-title";
+  const titleText = document.createElement("div");
+  titleText.textContent = "新增目標";
+  title.appendChild(titleText);
+  title.appendChild(rowButton("關閉", () => overlay.remove()));
 
-  const nums = [hpMax, hpCur, mpMax, mpCur, slashDamageRes, slashStaggerRes, piercingDamageRes, piercingStaggerRes, bluntDamageRes, bluntStaggerRes];
-  if (nums.some((v) => Number.isNaN(v))) {
-    alert("輸入無效，請重新新增目標。");
-    return;
+  const form = document.createElement("div");
+  form.className = "grid2";
+
+  function makeField(label, value = "", type = "text", step = "1") {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const l = document.createElement("label");
+    l.textContent = label;
+    const inp = document.createElement("input");
+    inp.type = type;
+    inp.value = String(value);
+    if (type === "number") inp.step = step;
+    wrap.appendChild(l);
+    wrap.appendChild(inp);
+    form.appendChild(wrap);
+    return inp;
   }
 
-  emit("create_entity", {
-    name,
-    hp_current: hpCur,
-    hp_max: hpMax,
-    mp_current: mpCur,
-    mp_max: mpMax,
-    slash_damage_res: slashDamageRes,
-    slash_stagger_res: slashStaggerRes,
-    piercing_damage_res: piercingDamageRes,
-    piercing_stagger_res: piercingStaggerRes,
-    blunt_damage_res: bluntDamageRes,
-    blunt_stagger_res: bluntStaggerRes,
+  const name = makeField("目標名稱", "", "text");
+  const hpCur = makeField("HP當前值", 100, "number", "1");
+  const hpMax = makeField("HP最大值", 100, "number", "1");
+  const mpCur = makeField("MP當前值", 100, "number", "1");
+  const mpMax = makeField("MP最大值", 100, "number", "1");
+  const slashDamageRes = makeField("斬擊-傷害抗性", 1.0, "number", "0.1");
+  const slashStaggerRes = makeField("斬擊-混亂抗性", 1.0, "number", "0.1");
+  const piercingDamageRes = makeField("突刺-傷害抗性", 1.0, "number", "0.1");
+  const piercingStaggerRes = makeField("突刺-混亂抗性", 1.0, "number", "0.1");
+  const bluntDamageRes = makeField("打擊-傷害抗性", 1.0, "number", "0.1");
+  const bluntStaggerRes = makeField("打擊-混亂抗性", 1.0, "number", "0.1");
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const cancel = rowButton("取消", () => overlay.remove());
+  const confirm = rowButton("建立", () => {
+    const payload = {
+      name: name.value.trim(),
+      hp_max: Number(hpMax.value),
+      hp_current: Number(hpCur.value),
+      mp_max: Number(mpMax.value),
+      mp_current: Number(mpCur.value),
+      slash_damage_res: Number(slashDamageRes.value),
+      slash_stagger_res: Number(slashStaggerRes.value),
+      piercing_damage_res: Number(piercingDamageRes.value),
+      piercing_stagger_res: Number(piercingStaggerRes.value),
+      blunt_damage_res: Number(bluntDamageRes.value),
+      blunt_stagger_res: Number(bluntStaggerRes.value),
+    };
+    const nums = [
+      payload.hp_max,
+      payload.hp_current,
+      payload.mp_max,
+      payload.mp_current,
+      payload.slash_damage_res,
+      payload.slash_stagger_res,
+      payload.piercing_damage_res,
+      payload.piercing_stagger_res,
+      payload.blunt_damage_res,
+      payload.blunt_stagger_res,
+    ];
+    if (!payload.name) {
+      alert("請輸入目標名稱。");
+      return;
+    }
+    if (nums.some((v) => Number.isNaN(v))) {
+      alert("數值欄位有誤，請重新檢查。");
+      return;
+    }
+    emit("create_entity", payload);
+    overlay.remove();
   });
-});
+  actions.appendChild(cancel);
+  actions.appendChild(confirm);
+
+  modal.appendChild(title);
+  modal.appendChild(form);
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.body.appendChild(overlay);
+}
 
 ui.turnEndBtn.addEventListener("click", () => {
   emit("turn_end", { turn: Number(ui.turnInput.value || 1) });
