@@ -558,7 +558,7 @@ class GameState:
         if len(self.undo_stack) > MAX_UNDO_STEPS:
             self.undo_stack = self.undo_stack[-MAX_UNDO_STEPS:]
         self._import_state(snapshot_after)
-        self._append_history(f"撤回了一次“{operation_type}”")
+        self._append_history(f"重做了一次“{operation_type}”")
 
     def set_combo_choice(self, entity_id: int, choice: str) -> None:
         ent = self._get_entity(entity_id)

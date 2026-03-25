@@ -174,6 +174,7 @@ async def activate_debuff(sid: str, payload: dict[str, Any]) -> None:
 async def conversion(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:
+            state.record_undo_checkpoint("振幅轉換")
             state.conversion(_entity_id(payload))
             await emit_state()
     except Exception as exc:

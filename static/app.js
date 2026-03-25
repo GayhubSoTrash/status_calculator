@@ -4,7 +4,7 @@ const ui = {
   entities: document.getElementById("entities"),
   createBtn: document.getElementById("createBtn"),
   undoBtn: document.getElementById("undoBtn"),
-  redoBtn: document.getElementById("redoBtn"),
+  Btredon: document.getElementById("redoBtn"),
   clearHistoryBtn: document.getElementById("clearHistoryBtn"),
   historyLog: document.getElementById("historyLog"),
   turnInput: document.getElementById("turnInput"),
@@ -435,7 +435,7 @@ function renderEntity(entity) {
   select.addEventListener("change", () => emit("set_combo_choice", { entityId: entity.id, choice: select.value }));
   grant.appendChild(select);
   grant.appendChild(rowButton("賦予", () => emit("grant_now", { entityId: entity.id, choice: select.value })));
-  grant.appendChild(rowButton("下一幕賦予減益", () => emit("grant_next", { entityId: entity.id, choice: select.value })));
+  grant.appendChild(rowButton("下一幕賦予", () => emit("grant_next", { entityId: entity.id, choice: select.value })));
   panel.appendChild(grant);
 
   // Resistances
