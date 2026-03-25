@@ -259,10 +259,12 @@ class GameState:
         # Critical / dodge modify weapon damage and damage modifier.
         if critical_hit:
             weapon_used = weapon_max * 2
-            dmg_mod_used = damage_modifier * 2
+            dmg_mod_used = damage_modifier 
+            if dodge_fumble:
+                weapon_used = weapon_used * 2
         elif dodge_fumble:
             weapon_used = weapon_roll * 2
-            dmg_mod_used = damage_modifier * 2
+            dmg_mod_used = damage_modifier 
         else:
             weapon_used = weapon_roll
             dmg_mod_used = damage_modifier
