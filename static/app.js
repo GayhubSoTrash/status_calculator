@@ -48,6 +48,15 @@ function floor0(n) {
 function openAttackModal(entity) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
+  let previewListenerBound = false;
+  let onPreviewResult = null;
+  function closeOverlay() {
+    if (previewListenerBound && onPreviewResult) {
+      socket.off("attack_preview_result", onPreviewResult);
+      previewListenerBound = false;
+    }
+    overlay.remove();
+  }
 
   const modal = document.createElement("div");
   modal.className = "modal";
@@ -57,7 +66,7 @@ function openAttackModal(entity) {
   const h = document.createElement("div");
   h.textContent = `攻擊：${entity.name}`;
   title.appendChild(h);
-  const closeX = rowButton("關閉", () => overlay.remove());
+  const closeX = rowButton("關閉", () => closeOverlay());
   title.appendChild(closeX);
 
   const form = document.createElement("div");
@@ -174,72 +183,33 @@ function openAttackModal(entity) {
   preview.className = "preview";
   preview.textContent = "預計傷害：0/0";
 
+  let previewRequestCounter = 0;
+  const previewToken = `preview_${entity.id}_${Date.now()}_${Math.random()}`;
+  overlay.dataset.previewToken = previewToken;
+
   function calcPreview() {
     const range = parseDiceRange(weaponDamage.value);
     if (!range) {
       preview.textContent = "預計傷害：?/?";
       return;
     }
-
-    const dmgMod = Number(damageModifier.value || 0);
-    const exD = Number(extraDamage.value || 0);
-    const exS = Number(extraStagger.value || 0);
-    const dmgMul = Number(damageMultiplier.value || 1);
-    const stMul = Number(staggerMultiplier.value || 1);
-    const fixD = Number(fixedDamage.value || 0);
-    const fixS = Number(fixedStagger.value || 0);
-
-    // Determine weaponUsed range based on toggles.
-    let weaponMinUsed = range.min;
-    let weaponMaxUsed = range.max;
-    let dmgModUsed = dmgMod;
-
-    if (crit.checked) {
-      weaponMinUsed = range.max * 2;
-      weaponMaxUsed = range.max * 2;
-      dmgModUsed = dmgMod * 2;
-    } else if (dodge.checked) {
-      weaponMinUsed = range.min * 2;
-      weaponMaxUsed = range.max * 2;
-      dmgModUsed = dmgMod * 2;
-    }
-
-    // Resistances
-    const res = entity.resistances || {};
-    let baseDamageRes = 1.0;
-    let baseStaggerRes = 1.0;
-    if (damageType.value === "斬擊") {
-      baseDamageRes = Number(res.slash_damage_res || 0);
-      baseStaggerRes = Number(res.slash_stagger_res || 0);
-    } else if (damageType.value === "突刺") {
-      baseDamageRes = Number(res.piercing_damage_res || 0);
-      baseStaggerRes = Number(res.piercing_stagger_res || 0);
-    } else {
-      baseDamageRes = Number(res.blunt_damage_res || 0);
-      baseStaggerRes = Number(res.blunt_stagger_res || 0);
-    }
-
-    if (entity.is_staggered) {
-      baseDamageRes = 2.0;
-      baseStaggerRes = 2.0;
-    }
-
-    if (black.checked) {
-      const meanRes = (baseDamageRes + baseStaggerRes) / 2.0;
-      baseDamageRes = meanRes;
-      baseStaggerRes = meanRes;
-    }
-
-    const minD =
-      floor0((weaponMinUsed + dmgModUsed + exD) * dmgMul * baseDamageRes + fixD);
-    const maxD =
-      floor0((weaponMaxUsed + dmgModUsed + exD) * dmgMul * baseDamageRes + fixD);
-    const minS =
-      floor0((weaponMinUsed + dmgModUsed + exS) * stMul * baseStaggerRes + fixS);
-    const maxS =
-      floor0((weaponMaxUsed + dmgModUsed + exS) * stMul * baseStaggerRes + fixS);
-
-    preview.textContent = `預計傷害：${minD}~${maxD}/${minS}~${maxS}`;
+    const requestId = `${previewToken}_${++previewRequestCounter}`;
+    emit("attack_preview", {
+      entityId: entity.id,
+      requestId,
+      weaponDamage: weaponDamage.value,
+      damageModifier: Number(damageModifier.value || 0),
+      extraDamage: Number(extraDamage.value || 0),
+      extraStagger: Number(extraStagger.value || 0),
+      damageMultiplier: Number(damageMultiplier.value || 1),
+      staggerMultiplier: Number(staggerMultiplier.value || 1),
+      fixedDamage: Number(fixedDamage.value || 0),
+      fixedStagger: Number(fixedStagger.value || 0),
+      damageType: damageType.value,
+      criticalHit: crit.checked,
+      dodgeFumble: dodge.checked,
+      blackDamage: black.checked,
+    });
   }
 
   const inputsToWatch = [
@@ -285,7 +255,7 @@ function openAttackModal(entity) {
   });
   const cancelBtn = document.createElement("button");
   cancelBtn.textContent = "取消";
-  cancelBtn.addEventListener("click", () => overlay.remove());
+  cancelBtn.addEventListener("click", () => closeOverlay());
   actions.appendChild(cancelBtn);
   actions.appendChild(confirmBtn);
 
@@ -296,10 +266,22 @@ function openAttackModal(entity) {
   overlay.appendChild(modal);
 
   overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) overlay.remove();
+    if (e.target === overlay) closeOverlay();
   });
 
   document.body.appendChild(overlay);
+
+  onPreviewResult = (result) => {
+    if (!overlay.isConnected) {
+      socket.off("attack_preview_result", onPreviewResult);
+      return;
+    }
+    if (result.entityId !== entity.id) return;
+    if (!String(result.requestId || "").startsWith(previewToken)) return;
+    preview.textContent = `預計傷害：${result.min_damage}~${result.max_damage}/${result.min_stagger}~${result.max_stagger}`;
+  };
+  socket.on("attack_preview_result", onPreviewResult);
+  previewListenerBound = true;
 }
 
 function rowButton(text, onClick) {

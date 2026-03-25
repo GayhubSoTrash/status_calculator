@@ -255,3 +255,35 @@ async def attack_entity(sid: str, payload: dict[str, Any]) -> None:
             await emit_state()
     except Exception as exc:
         await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def attack_preview(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            result = state.calculate_attack_preview(
+                _entity_id(payload),
+                str(payload.get("weaponDamage", "0")),
+                float(payload.get("damageModifier", 0)),
+                float(payload.get("extraDamage", 0)),
+                float(payload.get("extraStagger", 0)),
+                float(payload.get("damageMultiplier", 1)),
+                float(payload.get("staggerMultiplier", 1)),
+                float(payload.get("fixedDamage", 0)),
+                float(payload.get("fixedStagger", 0)),
+                str(payload.get("damageType", "slash")),
+                bool(payload.get("criticalHit", False)),
+                bool(payload.get("dodgeFumble", False)),
+                bool(payload.get("blackDamage", False)),
+            )
+        await sio.emit(
+            "attack_preview_result",
+            {
+                "entityId": _entity_id(payload),
+                "requestId": payload.get("requestId"),
+                **result,
+            },
+            room=sid,
+        )
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)

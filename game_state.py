@@ -227,47 +227,29 @@ class GameState:
         pre_staggered = ent.is_staggered
 
         # Parse dice input and roll once (server-authoritative).
-        weapon_kind, weapon_x, weapon_y, weapon_offset = self._parse_dice(weapon_damage)
+        _weapon_kind, weapon_x, weapon_y, weapon_offset = self._parse_dice(weapon_damage)
         weapon_roll = self._roll_dice_sum(weapon_x, weapon_y) + weapon_offset
         weapon_min = weapon_x * 1 + weapon_offset
         weapon_max = weapon_x * weapon_y + weapon_offset
 
-        # Damage-type mapping.
         damage_type_key = self._normalize_damage_type_key(damage_type)
-        if damage_type_key == "slash":
-            base_damage_res = ent.slash_damage_res
-            base_stagger_res = ent.slash_stagger_res
-        elif damage_type_key == "piercing":
-            base_damage_res = ent.piercing_damage_res
-            base_stagger_res = ent.piercing_stagger_res
-        elif damage_type_key == "blunt":
-            base_damage_res = ent.blunt_damage_res
-            base_stagger_res = ent.blunt_stagger_res
-        else:
-            raise ValueError("未知傷害類型。")
+        base_damage_res, base_stagger_res = self._resolve_attack_resistances(
+            ent, damage_type_key, pre_staggered, black_damage
+        )
 
-        # Stagger-state override: treat resistances as 2.0 for attacks while already staggered.
-        if pre_staggered:
-            base_damage_res = 2.0
-            base_stagger_res = 2.0
-
-        if black_damage:
-            mean_res = (base_damage_res + base_stagger_res) / 2.0
-            base_damage_res = mean_res
-            base_stagger_res = mean_res
-
-        # Critical / dodge modify weapon damage and damage modifier.
-        if critical_hit:
+        # Critical / dodge behavior on weapon roll only:
+        # - critical: use max roll and *2
+        # - dodge_fumble: *2 on weapon roll
+        # - both: max roll *4
+        if critical_hit and dodge_fumble:
+            weapon_used = weapon_max * 4
+        elif critical_hit:
             weapon_used = weapon_max * 2
-            dmg_mod_used = damage_modifier 
-            if dodge_fumble:
-                weapon_used = weapon_used * 2
         elif dodge_fumble:
             weapon_used = weapon_roll * 2
-            dmg_mod_used = damage_modifier 
         else:
             weapon_used = weapon_roll
-            dmg_mod_used = damage_modifier
+        dmg_mod_used = damage_modifier
 
         damage_calc = (
             (weapon_used + dmg_mod_used + extra_damage)
@@ -308,6 +290,110 @@ class GameState:
         if (not pre_staggered) and ent.mp_current <= 0 and not ent.is_staggered:
             self._enter_stagger_state(ent)
 
+    def calculate_attack_preview(
+        self,
+        entity_id: int,
+        weapon_damage: str,
+        damage_modifier: float,
+        extra_damage: float,
+        extra_stagger: float,
+        damage_multiplier: float,
+        stagger_multiplier: float,
+        fixed_damage: float,
+        fixed_stagger: float,
+        damage_type: str,
+        critical_hit: bool,
+        dodge_fumble: bool,
+        black_damage: bool,
+    ) -> dict[str, int]:
+        ent = self._get_entity(entity_id)
+        _weapon_kind, weapon_x, weapon_y, weapon_offset = self._parse_dice(weapon_damage)
+        weapon_min = weapon_x * 1 + weapon_offset
+        weapon_max = weapon_x * weapon_y + weapon_offset
+        damage_type_key = self._normalize_damage_type_key(damage_type)
+
+        base_damage_res, base_stagger_res = self._resolve_attack_resistances(
+            ent, damage_type_key, ent.is_staggered, black_damage
+        )
+
+        if critical_hit and dodge_fumble:
+            weapon_min_used = weapon_max * 4
+            weapon_max_used = weapon_max * 4
+        elif critical_hit:
+            weapon_min_used = weapon_max * 2
+            weapon_max_used = weapon_max * 2
+        elif dodge_fumble:
+            weapon_min_used = weapon_min * 2
+            weapon_max_used = weapon_max * 2
+        else:
+            weapon_min_used = weapon_min
+            weapon_max_used = weapon_max
+
+        dmg_mod_used = damage_modifier
+
+        min_damage = max(
+            0,
+            int(
+                math.floor(
+                    (
+                        (weapon_min_used + dmg_mod_used + extra_damage)
+                        * damage_multiplier
+                        * base_damage_res
+                        + fixed_damage
+                    )
+                    + 1e-9
+                )
+            ),
+        )
+        max_damage = max(
+            0,
+            int(
+                math.floor(
+                    (
+                        (weapon_max_used + dmg_mod_used + extra_damage)
+                        * damage_multiplier
+                        * base_damage_res
+                        + fixed_damage
+                    )
+                    + 1e-9
+                )
+            ),
+        )
+        min_stagger = max(
+            0,
+            int(
+                math.floor(
+                    (
+                        (weapon_min_used + dmg_mod_used + extra_stagger)
+                        * stagger_multiplier
+                        * base_stagger_res
+                        + fixed_stagger
+                    )
+                    + 1e-9
+                )
+            ),
+        )
+        max_stagger = max(
+            0,
+            int(
+                math.floor(
+                    (
+                        (weapon_max_used + dmg_mod_used + extra_stagger)
+                        * stagger_multiplier
+                        * base_stagger_res
+                        + fixed_stagger
+                    )
+                    + 1e-9
+                )
+            ),
+        )
+        return {
+            "min_damage": min_damage,
+            "max_damage": max_damage,
+            "min_stagger": min_stagger,
+            "max_stagger": max_stagger,
+        }
+
     def _parse_dice(self, weapon_damage: str) -> tuple[str, int, int, int]:
         """
         Returns (kind, x, y, offset) where kind is 'dice' or 'int'.
@@ -336,6 +422,36 @@ class GameState:
         if y == 1:
             return x
         return sum(random.randint(1, y) for _ in range(x))
+
+    def _resolve_attack_resistances(
+        self,
+        ent: Entity,
+        damage_type_key: str,
+        pre_staggered: bool,
+        black_damage: bool,
+    ) -> tuple[float, float]:
+        if damage_type_key == "slash":
+            base_damage_res = ent.slash_damage_res
+            base_stagger_res = ent.slash_stagger_res
+        elif damage_type_key == "piercing":
+            base_damage_res = ent.piercing_damage_res
+            base_stagger_res = ent.piercing_stagger_res
+        elif damage_type_key == "blunt":
+            base_damage_res = ent.blunt_damage_res
+            base_stagger_res = ent.blunt_stagger_res
+        else:
+            raise ValueError("未知傷害類型。")
+
+        if pre_staggered:
+            base_damage_res = 2.0
+            base_stagger_res = 2.0
+
+        if black_damage:
+            mean_res = (base_damage_res + base_stagger_res) / 2.0
+            base_damage_res = mean_res
+            base_stagger_res = mean_res
+
+        return base_damage_res, base_stagger_res
 
     def _enter_stagger_state(self, ent: Entity) -> None:
         if ent.is_staggered:
