@@ -4,7 +4,7 @@ const ui = {
   entities: document.getElementById("entities"),
   createBtn: document.getElementById("createBtn"),
   undoBtn: document.getElementById("undoBtn"),
-  Btredon: document.getElementById("redoBtn"),
+  redoBtn: document.getElementById("redoBtn"),
   clearHistoryBtn: document.getElementById("clearHistoryBtn"),
   historyLog: document.getElementById("historyLog"),
   turnInput: document.getElementById("turnInput"),
