@@ -77,6 +77,42 @@ async def stock_update(payload: dict[str, Any]) -> JSONResponse:
 
     async with stock_lock:
         snapshot = stock_state.update_prices(prices)
+    return JSONResponse({"ok": True, "message": "Updated.", "snapshot": snapshot})
+
+
+@fastapi_app.post("/api/stock/broadcast")
+async def stock_broadcast() -> JSONResponse:
+    async with stock_lock:
+        snapshot = stock_state.snapshot()
+        text = _stock_broadcast_text(snapshot)
+    ok, detail = await _send_discord_webhook(text)
+    if not ok:
+        return JSONResponse(
+            {
+                "ok": False,
+                "message": "Discord webhook failed.",
+                "detail": detail,
+                "snapshot": snapshot,
+            },
+            status_code=400,
+        )
+    return JSONResponse({"ok": True, "message": "Broadcast sent.", "snapshot": snapshot})
+
+
+@fastapi_app.post("/api/stock/update-and-broadcast")
+async def stock_update_and_broadcast(payload: dict[str, Any]) -> JSONResponse:
+    raw_prices = payload.get("prices", {})
+    if not isinstance(raw_prices, dict):
+        return JSONResponse({"ok": False, "message": "prices must be an object."}, status_code=400)
+    prices: dict[str, float] = {}
+    for k, v in raw_prices.items():
+        try:
+            prices[str(k)] = float(v)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "message": f"invalid price: {k}"}, status_code=400)
+
+    async with stock_lock:
+        snapshot = stock_state.update_prices(prices)
         text = _stock_broadcast_text(snapshot)
     ok, detail = await _send_discord_webhook(text)
     if not ok:

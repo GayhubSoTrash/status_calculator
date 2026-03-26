@@ -2,7 +2,9 @@ const ui = {
   stockRows: document.getElementById("stockRows"),
   lastUpdated: document.getElementById("lastUpdated"),
   stockStatus: document.getElementById("stockStatus"),
-  manualUpdateBtn: document.getElementById("manualUpdateBtn"),
+  manualUpdateOnlyBtn: document.getElementById("manualUpdateOnlyBtn"),
+  manualBroadcastBtn: document.getElementById("manualBroadcastBtn"),
+  manualUpdateBroadcastBtn: document.getElementById("manualUpdateBroadcastBtn"),
 };
 const priceInputs = new Map();
 
@@ -56,18 +58,54 @@ async function refresh() {
   }
 }
 
-ui.manualUpdateBtn.addEventListener("click", async () => {
+function collectPrices() {
   const prices = {};
   for (const [symbol, inp] of priceInputs.entries()) {
     const v = Number(inp.value);
     if (!Number.isFinite(v) || v <= 0) {
-      ui.stockStatus.textContent = `${symbol} 價格無效`;
-      return;
+      throw new Error(`${symbol} 價格無效`);
     }
     prices[symbol] = v;
   }
+  return prices;
+}
+
+ui.manualUpdateOnlyBtn.addEventListener("click", async () => {
   try {
+    const prices = collectPrices();
     const res = await fetch("/api/stock/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prices }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail || data?.message || `update error: ${res.status}`);
+    render(data.snapshot || data);
+    ui.stockStatus.textContent = `更新完成 ${new Date().toLocaleTimeString()}`;
+  } catch (err) {
+    ui.stockStatus.textContent = `更新失敗: ${String(err.message || err)}`;
+  }
+});
+
+ui.manualBroadcastBtn.addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/stock/broadcast", {
+      method: "POST",
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.detail || data?.message || `broadcast error: ${res.status}`);
+    render(data.snapshot || data);
+    ui.stockStatus.textContent = `廣播完成 ${new Date().toLocaleTimeString()}`;
+  } catch (err) {
+    ui.stockStatus.textContent = `廣播失敗: ${String(err.message || err)}`;
+  }
+});
+
+ui.manualUpdateBroadcastBtn.addEventListener("click", async () => {
+  try {
+    const prices = collectPrices();
+    const endpoint = "/api/stock/update-and-broadcast";
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prices }),

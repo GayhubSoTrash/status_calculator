@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
@@ -56,4 +56,5 @@ class StockState:
         return self.snapshot()
 
     def _now_iso(self) -> str:
-        return datetime.now(timezone.utc).isoformat(timespec="seconds")
+        tz_utc8 = timezone(timedelta(hours=8))
+        return datetime.now(tz_utc8).isoformat(timespec="seconds")
