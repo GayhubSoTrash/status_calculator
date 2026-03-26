@@ -48,6 +48,7 @@ class StockState:
         now = self._now_iso()
         self.tick_count += 1
         for item in self._items:
+            item.prev_close = item.price
             ratio = random.uniform(0.9, 1.1)
             next_price = max(0.01, item.price * ratio)
             item.price = round(next_price, 2)

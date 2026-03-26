@@ -1,15 +1,17 @@
 import asyncio
 import contextlib
+import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 import socketio
 
-from discord_bot import DiscordBroadcaster
 from game_state import GameState
 from stock_state import StockState
 
@@ -30,14 +32,7 @@ stock_lock = asyncio.Lock()
 stock_tick_task: asyncio.Task | None = None
 
 _stock_interval = int(os.getenv("STOCK_BROADCAST_INTERVAL_SEC", "3600"))
-_discord_channel_raw = os.getenv("DISCORD_CHANNEL_ID", "").strip()
-_discord_channel_id = int(_discord_channel_raw) if _discord_channel_raw.isdigit() else None
-discord_broadcaster = DiscordBroadcaster(
-    token=os.getenv("DISCORD_BOT_TOKEN"),
-    channel_id=_discord_channel_id,
-    interval_sec=_stock_interval,
-    get_message_text=lambda: _stock_broadcast_text(stock_state.snapshot()),
-)
+_discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 
 
 @fastapi_app.get("/")
@@ -81,10 +76,12 @@ async def stock_tick() -> JSONResponse:
 
 @fastapi_app.post("/api/stock/broadcast-test")
 async def stock_broadcast_test() -> JSONResponse:
-    ok = await discord_broadcaster.broadcast_now()
+    async with stock_lock:
+        text = _stock_broadcast_text(stock_state.snapshot())
+    ok = await _send_discord_webhook(text)
     if not ok:
         return JSONResponse(
-            {"ok": False, "message": "Discord broadcaster unavailable. Check token/channel settings."},
+            {"ok": False, "message": "Discord webhook unavailable. Check DISCORD_WEBHOOK_URL."},
             status_code=400,
         )
     return JSONResponse({"ok": True, "message": "Broadcast sent."})
@@ -95,8 +92,6 @@ async def on_startup() -> None:
     global stock_tick_task
     if stock_tick_task is None or stock_tick_task.done():
         stock_tick_task = asyncio.create_task(_stock_tick_loop(), name="stock-tick-loop")
-    await discord_broadcaster.start()
-    await discord_broadcaster.ensure_broadcast_loop()
 
 
 @fastapi_app.on_event("shutdown")
@@ -107,7 +102,6 @@ async def on_shutdown() -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await stock_tick_task
     stock_tick_task = None
-    await discord_broadcaster.stop()
 
 
 async def emit_state() -> None:
@@ -119,7 +113,29 @@ async def _stock_tick_loop() -> None:
     while True:
         await asyncio.sleep(interval)
         async with stock_lock:
-            stock_state.tick()
+            snapshot = stock_state.tick()
+        await _send_discord_webhook(_stock_broadcast_text(snapshot))
+
+
+async def _send_discord_webhook(message: str) -> bool:
+    if not _discord_webhook_url:
+        return False
+
+    def _post() -> bool:
+        payload = json.dumps({"content": message}).encode("utf-8")
+        req = urlrequest.Request(
+            _discord_webhook_url,
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urlrequest.urlopen(req, timeout=15) as resp:
+                return 200 <= int(resp.status) < 300
+        except (urlerror.URLError, urlerror.HTTPError, TimeoutError):
+            return False
+
+    return await asyncio.to_thread(_post)
 
 
 def _stock_broadcast_text(snapshot: dict[str, Any]) -> str:

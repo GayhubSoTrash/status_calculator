@@ -7,7 +7,5 @@ services:
     envVars:
       - key: STOCK_BROADCAST_INTERVAL_SEC
         value: 3600
-      - key: DISCORD_BOT_TOKEN
-        sync: false
-      - key: DISCORD_CHANNEL_ID
+      - key: DISCORD_WEBHOOK_URL
         sync: false
