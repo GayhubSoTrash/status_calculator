@@ -2,9 +2,9 @@ const ui = {
   stockRows: document.getElementById("stockRows"),
   lastUpdated: document.getElementById("lastUpdated"),
   stockStatus: document.getElementById("stockStatus"),
-  manualTickBtn: document.getElementById("manualTickBtn"),
-  manualBroadcastBtn: document.getElementById("manualBroadcastBtn"),
+  manualUpdateBtn: document.getElementById("manualUpdateBtn"),
 };
+const priceInputs = new Map();
 
 function fmtSigned(v) {
   const n = Number(v || 0);
@@ -18,10 +18,18 @@ function render(snapshot) {
     const tr = document.createElement("tr");
     const pct = fmtSigned(item.change_pct);
     const cls = Number(item.change || 0) > 0 ? "up" : Number(item.change || 0) < 0 ? "down" : "flat";
-    tr.innerHTML = `
-      <td>${item.symbol}</td>
-      <td>${item.name}</td>
-      <td>${Number(item.price).toFixed(2)}</td>
+    tr.innerHTML = `<td>${item.symbol}</td><td>${item.name}</td>`;
+    const priceTd = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.step = "0.01";
+    inp.min = "0.01";
+    inp.value = Number(item.price).toFixed(2);
+    inp.style.width = "100px";
+    priceInputs.set(item.symbol, inp);
+    priceTd.appendChild(inp);
+    tr.appendChild(priceTd);
+    tr.innerHTML += `
       <td>${Number(item.prev_close).toFixed(2)}</td>
       <td class="${cls}">${fmtSigned(item.change)}</td>
       <td class="${cls}">${pct}%</td>
@@ -48,28 +56,29 @@ async function refresh() {
   }
 }
 
-ui.manualTickBtn.addEventListener("click", async () => {
-  try {
-    const res = await fetch("/api/stock/tick", { method: "POST" });
-    if (!res.ok) throw new Error(`tick error: ${res.status}`);
-    const data = await res.json();
-    render(data);
-    ui.stockStatus.textContent = `手動更新 ${new Date().toLocaleTimeString()}`;
-  } catch (err) {
-    ui.stockStatus.textContent = "手動更新失敗";
+ui.manualUpdateBtn.addEventListener("click", async () => {
+  const prices = {};
+  for (const [symbol, inp] of priceInputs.entries()) {
+    const v = Number(inp.value);
+    if (!Number.isFinite(v) || v <= 0) {
+      ui.stockStatus.textContent = `${symbol} 價格無效`;
+      return;
+    }
+    prices[symbol] = v;
   }
-});
-
-ui.manualBroadcastBtn.addEventListener("click", async () => {
   try {
-    const res = await fetch("/api/stock/broadcast-test", { method: "POST" });
+    const res = await fetch("/api/stock/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prices }),
+    });
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.message || `broadcast error: ${res.status}`);
-    ui.stockStatus.textContent = `廣播完成 ${new Date().toLocaleTimeString()}`;
+    if (!res.ok) throw new Error(data?.detail || data?.message || `update error: ${res.status}`);
+    render(data.snapshot || data);
+    ui.stockStatus.textContent = `更新並廣播完成 ${new Date().toLocaleTimeString()}`;
   } catch (err) {
-    ui.stockStatus.textContent = "測試廣播失敗";
+    ui.stockStatus.textContent = `更新失敗: ${String(err.message || err)}`;
   }
 });
 
 refresh();
-setInterval(refresh, 15000);

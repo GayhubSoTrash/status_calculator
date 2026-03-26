@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import random
 from typing import Any
 
 
@@ -44,13 +43,14 @@ class StockState:
             "items": [item.as_dict() for item in self._items],
         }
 
-    def tick(self) -> dict[str, Any]:
+    def update_prices(self, prices: dict[str, float]) -> dict[str, Any]:
         now = self._now_iso()
         self.tick_count += 1
         for item in self._items:
+            if item.symbol not in prices:
+                continue
+            next_price = max(0.01, float(prices[item.symbol]))
             item.prev_close = item.price
-            ratio = random.uniform(0.9, 1.1)
-            next_price = max(0.01, item.price * ratio)
             item.price = round(next_price, 2)
             item.updated_at = now
         return self.snapshot()

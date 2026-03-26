@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -29,9 +28,6 @@ state = GameState()
 state_lock = asyncio.Lock()
 stock_state = StockState()
 stock_lock = asyncio.Lock()
-stock_tick_task: asyncio.Task | None = None
-
-_stock_interval = int(os.getenv("STOCK_BROADCAST_INTERVAL_SEC", "3600"))
 _discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 
 
@@ -67,17 +63,21 @@ async def stock_snapshot() -> JSONResponse:
         return JSONResponse(stock_state.snapshot())
 
 
-@fastapi_app.post("/api/stock/tick")
-async def stock_tick() -> JSONResponse:
-    async with stock_lock:
-        data = stock_state.tick()
-    return JSONResponse(data)
+@fastapi_app.post("/api/stock/update")
+async def stock_update(payload: dict[str, Any]) -> JSONResponse:
+    raw_prices = payload.get("prices", {})
+    if not isinstance(raw_prices, dict):
+        return JSONResponse({"ok": False, "message": "prices must be an object."}, status_code=400)
+    prices: dict[str, float] = {}
+    for k, v in raw_prices.items():
+        try:
+            prices[str(k)] = float(v)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "message": f"invalid price: {k}"}, status_code=400)
 
-
-@fastapi_app.post("/api/stock/broadcast-test")
-async def stock_broadcast_test() -> JSONResponse:
     async with stock_lock:
-        text = _stock_broadcast_text(stock_state.snapshot())
+        snapshot = stock_state.update_prices(prices)
+        text = _stock_broadcast_text(snapshot)
     ok, detail = await _send_discord_webhook(text)
     if not ok:
         return JSONResponse(
@@ -85,40 +85,15 @@ async def stock_broadcast_test() -> JSONResponse:
                 "ok": False,
                 "message": "Discord webhook failed.",
                 "detail": detail,
+                "snapshot": snapshot,
             },
             status_code=400,
         )
-    return JSONResponse({"ok": True, "message": "Broadcast sent."})
-
-
-@fastapi_app.on_event("startup")
-async def on_startup() -> None:
-    global stock_tick_task
-    if stock_tick_task is None or stock_tick_task.done():
-        stock_tick_task = asyncio.create_task(_stock_tick_loop(), name="stock-tick-loop")
-
-
-@fastapi_app.on_event("shutdown")
-async def on_shutdown() -> None:
-    global stock_tick_task
-    if stock_tick_task and not stock_tick_task.done():
-        stock_tick_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await stock_tick_task
-    stock_tick_task = None
+    return JSONResponse({"ok": True, "message": "Broadcast sent.", "snapshot": snapshot})
 
 
 async def emit_state() -> None:
     await sio.emit("state_updated", state.snapshot())
-
-
-async def _stock_tick_loop() -> None:
-    interval = max(10, _stock_interval)
-    while True:
-        await asyncio.sleep(interval)
-        async with stock_lock:
-            snapshot = stock_state.tick()
-        await _send_discord_webhook(_stock_broadcast_text(snapshot))
 
 
 async def _send_discord_webhook(message: str) -> tuple[bool, str]:
