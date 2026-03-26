@@ -1,10 +1,6 @@
 import asyncio
-import json
-import os
 from pathlib import Path
 from typing import Any
-from urllib import error as urlerror
-from urllib import request as urlrequest
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -25,8 +21,6 @@ app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
 
 state = GameState()
 state_lock = asyncio.Lock()
-_stock_backend_url = os.getenv("STOCK_BACKEND_URL", "").strip().rstrip("/")
-_stock_backend_key = os.getenv("STOCK_BACKEND_KEY", "").strip()
 
 
 @fastapi_app.get("/")
@@ -40,11 +34,6 @@ async def index_head() -> Response:
     return Response(status_code=200)
 
 
-@fastapi_app.get("/stock")
-async def stock_page() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "stock.html"))
-
-
 @fastapi_app.get("/health")
 async def health() -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -55,86 +44,8 @@ async def health_head() -> Response:
     return Response(status_code=200)
 
 
-@fastapi_app.get("/api/stock/snapshot")
-async def stock_snapshot() -> JSONResponse:
-    ok, status, data = await _stock_backend_request("GET", "/stock/snapshot")
-    return JSONResponse(data, status_code=status if not ok else 200)
-
-
-@fastapi_app.post("/api/stock/update")
-async def stock_update(payload: dict[str, Any]) -> JSONResponse:
-    ok, status, data = await _stock_backend_request(
-        "POST", "/stock/update", payload=payload, require_auth=True
-    )
-    return JSONResponse(data, status_code=status if not ok else 200)
-
-
-@fastapi_app.post("/api/stock/broadcast")
-async def stock_broadcast() -> JSONResponse:
-    ok, status, data = await _stock_backend_request(
-        "POST", "/stock/broadcast", payload={}, require_auth=True
-    )
-    return JSONResponse(data, status_code=status if not ok else 200)
-
-
-@fastapi_app.post("/api/stock/update-and-broadcast")
-async def stock_update_and_broadcast(payload: dict[str, Any]) -> JSONResponse:
-    ok, status, data = await _stock_backend_request(
-        "POST", "/stock/update-and-broadcast", payload=payload, require_auth=True
-    )
-    return JSONResponse(data, status_code=status if not ok else 200)
-
-
 async def emit_state() -> None:
     await sio.emit("state_updated", state.snapshot())
-
-
-async def _stock_backend_request(
-    method: str,
-    path: str,
-    payload: dict[str, Any] | None = None,
-    require_auth: bool = False,
-) -> tuple[bool, int, dict[str, Any]]:
-    if not _stock_backend_url:
-        return False, 503, {"ok": False, "message": "STOCK_BACKEND_URL is not configured."}
-    if require_auth and not _stock_backend_key:
-        return False, 503, {"ok": False, "message": "STOCK_BACKEND_KEY is not configured."}
-
-    target_url = f"{_stock_backend_url}{path}"
-
-    def _call() -> tuple[bool, int, dict[str, Any]]:
-        headers = {"Content-Type": "application/json"}
-        if require_auth and _stock_backend_key:
-            headers["X-Relay-Key"] = _stock_backend_key
-        body = None if payload is None else json.dumps(payload).encode("utf-8")
-        req = urlrequest.Request(
-            target_url,
-            data=body,
-            method=method,
-            headers=headers,
-        )
-        try:
-            with urlrequest.urlopen(req, timeout=20) as resp:
-                status = int(resp.status)
-                raw = resp.read().decode("utf-8", errors="replace")
-                data = json.loads(raw) if raw else {}
-                return True, status, data
-        except urlerror.HTTPError as exc:
-            status = int(exc.code)
-            try:
-                raw = exc.read().decode("utf-8", errors="replace")
-                data = json.loads(raw) if raw else {}
-            except Exception:
-                data = {"ok": False, "message": f"Worker HTTP {status}"}
-            return False, status, data
-        except urlerror.URLError as exc:
-            return False, 502, {"ok": False, "message": f"Worker network error: {exc.reason}"}
-        except TimeoutError:
-            return False, 504, {"ok": False, "message": "Worker request timeout."}
-        except Exception as exc:
-            return False, 500, {"ok": False, "message": f"Unexpected worker error: {exc}"}
-
-    return await asyncio.to_thread(_call)
 
 
 def _entity_id(payload: dict[str, Any]) -> int:

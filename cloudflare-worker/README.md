@@ -1,22 +1,25 @@
-# Cloudflare Worker Stock Backend
+# Cloudflare Worker Stock Site
 
-This worker is designed to be the stock source-of-truth and Discord broadcaster.
+This worker hosts the stock website directly and stores stock state in KV.
 
 ## Required Worker secrets/bindings
 
-- `DISCORD_WEBHOOK_URL` (secret)
-- `RELAY_API_KEY` (secret, shared with Render `STOCK_BACKEND_KEY`)
+- `DISCORD_WEBHOOK_URL` (secret, for broadcast endpoints and cron)
 - `STOCK_KV` (KV namespace binding)
 
-## Required routes used by Render app
+## Routes
 
-- `GET /stock/snapshot`
-- `POST /stock/update` (requires `X-Relay-Key`)
-- `POST /stock/broadcast` (requires `X-Relay-Key`)
-- `POST /stock/update-and-broadcast` (requires `X-Relay-Key`)
+- `GET /stock` -> stock page HTML
+- `GET /stock.js` -> stock page script
+- `GET /stock.css` -> stock page style
+- `GET /stock/snapshot` -> latest stock snapshot
+- `POST /stock/update` -> modify stock (auto tick), no broadcast
+- `POST /stock/test-tick` -> test modify stock only, no broadcast
+- `POST /stock/broadcast` -> broadcast current snapshot to Discord
+- `POST /stock/update-and-broadcast` -> modify stock then broadcast
 
 ## Cron
 
-Configure a Cron Trigger in Cloudflare Worker for hourly execution (e.g. `0 * * * *`).
+Configure a Cron Trigger in Cloudflare Worker (e.g. `0 * * * *`).
 The scheduled handler auto-updates stock prices and sends a Discord webhook broadcast.
 
