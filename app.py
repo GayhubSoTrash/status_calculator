@@ -12,7 +12,6 @@ from fastapi.staticfiles import StaticFiles
 import socketio
 
 from game_state import GameState
-from stock_state import StockState
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -26,9 +25,8 @@ app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
 
 state = GameState()
 state_lock = asyncio.Lock()
-stock_state = StockState()
-stock_lock = asyncio.Lock()
-_discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
+_stock_backend_url = os.getenv("STOCK_BACKEND_URL", "").strip().rstrip("/")
+_stock_backend_key = os.getenv("STOCK_BACKEND_KEY", "").strip()
 
 
 @fastapi_app.get("/")
@@ -59,125 +57,84 @@ async def health_head() -> Response:
 
 @fastapi_app.get("/api/stock/snapshot")
 async def stock_snapshot() -> JSONResponse:
-    async with stock_lock:
-        return JSONResponse(stock_state.snapshot())
+    ok, status, data = await _stock_backend_request("GET", "/stock/snapshot")
+    return JSONResponse(data, status_code=status if not ok else 200)
 
 
 @fastapi_app.post("/api/stock/update")
 async def stock_update(payload: dict[str, Any]) -> JSONResponse:
-    raw_prices = payload.get("prices", {})
-    if not isinstance(raw_prices, dict):
-        return JSONResponse({"ok": False, "message": "prices must be an object."}, status_code=400)
-    prices: dict[str, float] = {}
-    for k, v in raw_prices.items():
-        try:
-            prices[str(k)] = float(v)
-        except (TypeError, ValueError):
-            return JSONResponse({"ok": False, "message": f"invalid price: {k}"}, status_code=400)
-
-    async with stock_lock:
-        snapshot = stock_state.update_prices(prices)
-    return JSONResponse({"ok": True, "message": "Updated.", "snapshot": snapshot})
+    ok, status, data = await _stock_backend_request(
+        "POST", "/stock/update", payload=payload, require_auth=True
+    )
+    return JSONResponse(data, status_code=status if not ok else 200)
 
 
 @fastapi_app.post("/api/stock/broadcast")
 async def stock_broadcast() -> JSONResponse:
-    async with stock_lock:
-        snapshot = stock_state.snapshot()
-        text = _stock_broadcast_text(snapshot)
-    ok, detail = await _send_discord_webhook(text)
-    if not ok:
-        return JSONResponse(
-            {
-                "ok": False,
-                "message": "Discord webhook failed.",
-                "detail": detail,
-                "snapshot": snapshot,
-            },
-            status_code=400,
-        )
-    return JSONResponse({"ok": True, "message": "Broadcast sent.", "snapshot": snapshot})
+    ok, status, data = await _stock_backend_request(
+        "POST", "/stock/broadcast", payload={}, require_auth=True
+    )
+    return JSONResponse(data, status_code=status if not ok else 200)
 
 
 @fastapi_app.post("/api/stock/update-and-broadcast")
 async def stock_update_and_broadcast(payload: dict[str, Any]) -> JSONResponse:
-    raw_prices = payload.get("prices", {})
-    if not isinstance(raw_prices, dict):
-        return JSONResponse({"ok": False, "message": "prices must be an object."}, status_code=400)
-    prices: dict[str, float] = {}
-    for k, v in raw_prices.items():
-        try:
-            prices[str(k)] = float(v)
-        except (TypeError, ValueError):
-            return JSONResponse({"ok": False, "message": f"invalid price: {k}"}, status_code=400)
-
-    async with stock_lock:
-        snapshot = stock_state.update_prices(prices)
-        text = _stock_broadcast_text(snapshot)
-    ok, detail = await _send_discord_webhook(text)
-    if not ok:
-        return JSONResponse(
-            {
-                "ok": False,
-                "message": "Discord webhook failed.",
-                "detail": detail,
-                "snapshot": snapshot,
-            },
-            status_code=400,
-        )
-    return JSONResponse({"ok": True, "message": "Broadcast sent.", "snapshot": snapshot})
+    ok, status, data = await _stock_backend_request(
+        "POST", "/stock/update-and-broadcast", payload=payload, require_auth=True
+    )
+    return JSONResponse(data, status_code=status if not ok else 200)
 
 
 async def emit_state() -> None:
     await sio.emit("state_updated", state.snapshot())
 
 
-async def _send_discord_webhook(message: str) -> tuple[bool, str]:
-    if not _discord_webhook_url:
-        return False, "DISCORD_WEBHOOK_URL is empty."
+async def _stock_backend_request(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    require_auth: bool = False,
+) -> tuple[bool, int, dict[str, Any]]:
+    if not _stock_backend_url:
+        return False, 503, {"ok": False, "message": "STOCK_BACKEND_URL is not configured."}
+    if require_auth and not _stock_backend_key:
+        return False, 503, {"ok": False, "message": "STOCK_BACKEND_KEY is not configured."}
 
-    def _post() -> tuple[bool, str]:
-        payload = json.dumps({"content": message}).encode("utf-8")
+    target_url = f"{_stock_backend_url}{path}"
+
+    def _call() -> tuple[bool, int, dict[str, Any]]:
+        headers = {"Content-Type": "application/json"}
+        if require_auth and _stock_backend_key:
+            headers["X-Relay-Key"] = _stock_backend_key
+        body = None if payload is None else json.dumps(payload).encode("utf-8")
         req = urlrequest.Request(
-            _discord_webhook_url,
-            data=payload,
-            method="POST",
-            headers={"Content-Type": "application/json"},
+            target_url,
+            data=body,
+            method=method,
+            headers=headers,
         )
         try:
-            with urlrequest.urlopen(req, timeout=15) as resp:
+            with urlrequest.urlopen(req, timeout=20) as resp:
                 status = int(resp.status)
-                if 200 <= status < 300:
-                    return True, f"HTTP {status}"
-                return False, f"HTTP {status}"
+                raw = resp.read().decode("utf-8", errors="replace")
+                data = json.loads(raw) if raw else {}
+                return True, status, data
         except urlerror.HTTPError as exc:
+            status = int(exc.code)
             try:
-                body = exc.read().decode("utf-8", errors="replace").strip()
+                raw = exc.read().decode("utf-8", errors="replace")
+                data = json.loads(raw) if raw else {}
             except Exception:
-                body = ""
-            detail = f"HTTP {exc.code}"
-            if body:
-                detail += f" - {body[:300]}"
-            return False, detail
+                data = {"ok": False, "message": f"Worker HTTP {status}"}
+            return False, status, data
         except urlerror.URLError as exc:
-            return False, f"Network error: {exc.reason}"
+            return False, 502, {"ok": False, "message": f"Worker network error: {exc.reason}"}
         except TimeoutError:
-            return False, "Request timeout."
+            return False, 504, {"ok": False, "message": "Worker request timeout."}
         except Exception as exc:
-            return False, f"Unexpected error: {exc}"
+            return False, 500, {"ok": False, "message": f"Unexpected worker error: {exc}"}
 
-    return await asyncio.to_thread(_post)
-
-
-def _stock_broadcast_text(snapshot: dict[str, Any]) -> str:
-    items = snapshot.get("items", [])
-    lines = ["[Stock Simulator] Market update"]
-    for item in items[:5]:
-        sign = "+" if item.get("change", 0) >= 0 else ""
-        lines.append(
-            f"{item.get('symbol')} {item.get('price')} ({sign}{item.get('change')}, {sign}{item.get('change_pct')}%)"
-        )
-    return "\n".join(lines)
+    return await asyncio.to_thread(_call)
 
 
 def _entity_id(payload: dict[str, Any]) -> int:
