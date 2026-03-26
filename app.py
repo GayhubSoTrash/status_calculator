@@ -1,13 +1,17 @@
 import asyncio
+import contextlib
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 import socketio
 
+from discord_bot import DiscordBroadcaster
 from game_state import GameState
+from stock_state import StockState
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,6 +25,19 @@ app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
 
 state = GameState()
 state_lock = asyncio.Lock()
+stock_state = StockState()
+stock_lock = asyncio.Lock()
+stock_tick_task: asyncio.Task | None = None
+
+_stock_interval = int(os.getenv("STOCK_BROADCAST_INTERVAL_SEC", "3600"))
+_discord_channel_raw = os.getenv("DISCORD_CHANNEL_ID", "").strip()
+_discord_channel_id = int(_discord_channel_raw) if _discord_channel_raw.isdigit() else None
+discord_broadcaster = DiscordBroadcaster(
+    token=os.getenv("DISCORD_BOT_TOKEN"),
+    channel_id=_discord_channel_id,
+    interval_sec=_stock_interval,
+    get_message_text=lambda: _stock_broadcast_text(stock_state.snapshot()),
+)
 
 
 @fastapi_app.get("/")
@@ -34,8 +51,86 @@ async def index_head() -> Response:
     return Response(status_code=200)
 
 
+@fastapi_app.get("/stock")
+async def stock_page() -> FileResponse:
+    return FileResponse(str(STATIC_DIR / "stock.html"))
+
+
+@fastapi_app.get("/health")
+async def health() -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+@fastapi_app.head("/health")
+async def health_head() -> Response:
+    return Response(status_code=200)
+
+
+@fastapi_app.get("/api/stock/snapshot")
+async def stock_snapshot() -> JSONResponse:
+    async with stock_lock:
+        return JSONResponse(stock_state.snapshot())
+
+
+@fastapi_app.post("/api/stock/tick")
+async def stock_tick() -> JSONResponse:
+    async with stock_lock:
+        data = stock_state.tick()
+    return JSONResponse(data)
+
+
+@fastapi_app.post("/api/stock/broadcast-test")
+async def stock_broadcast_test() -> JSONResponse:
+    ok = await discord_broadcaster.broadcast_now()
+    if not ok:
+        return JSONResponse(
+            {"ok": False, "message": "Discord broadcaster unavailable. Check token/channel settings."},
+            status_code=400,
+        )
+    return JSONResponse({"ok": True, "message": "Broadcast sent."})
+
+
+@fastapi_app.on_event("startup")
+async def on_startup() -> None:
+    global stock_tick_task
+    if stock_tick_task is None or stock_tick_task.done():
+        stock_tick_task = asyncio.create_task(_stock_tick_loop(), name="stock-tick-loop")
+    await discord_broadcaster.start()
+    await discord_broadcaster.ensure_broadcast_loop()
+
+
+@fastapi_app.on_event("shutdown")
+async def on_shutdown() -> None:
+    global stock_tick_task
+    if stock_tick_task and not stock_tick_task.done():
+        stock_tick_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stock_tick_task
+    stock_tick_task = None
+    await discord_broadcaster.stop()
+
+
 async def emit_state() -> None:
     await sio.emit("state_updated", state.snapshot())
+
+
+async def _stock_tick_loop() -> None:
+    interval = max(10, _stock_interval)
+    while True:
+        await asyncio.sleep(interval)
+        async with stock_lock:
+            stock_state.tick()
+
+
+def _stock_broadcast_text(snapshot: dict[str, Any]) -> str:
+    items = snapshot.get("items", [])
+    lines = ["[Stock Simulator] Market update"]
+    for item in items[:5]:
+        sign = "+" if item.get("change", 0) >= 0 else ""
+        lines.append(
+            f"{item.get('symbol')} {item.get('price')} ({sign}{item.get('change')}, {sign}{item.get('change_pct')}%)"
+        )
+    return "\n".join(lines)
 
 
 def _entity_id(payload: dict[str, Any]) -> int:

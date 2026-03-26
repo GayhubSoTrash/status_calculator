@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>股票模擬</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <a class="nav-link" href="/">回到戰鬥計算器</a>
+      <h2 class="stock-title">鉤月證券所</h2>
+      <button id="manualTickBtn" type="button">手動跳動一次</button>
+      <button id="manualBroadcastBtn" type="button">測試廣播</button>
+      <span id="stockStatus" class="status"></span>
+    </header>
+
+    <section class="stock-panel">
+      <div class="history-head">
+        <span>市場資訊</span>
+        <span id="lastUpdated" class="status"></span>
+      </div>
+      <div class="stock-table-wrap">
+        <table class="stock-table">
+          <thead>
+            <tr>
+              <th>代號</th>
+              <th>名稱</th>
+              <th>現價</th>
+              <th>前收</th>
+              <th>漲跌</th>
+              <th>漲跌幅</th>
+              <th>更新時間 (UTC)</th>
+            </tr>
+          </thead>
+          <tbody id="stockRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+  <script src="/static/stock.js"></script>
+</body>
+</html>

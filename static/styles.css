@@ -17,6 +17,16 @@ button, input, select {
   font-size: 14px;
   padding: 6px 8px;
 }
+.nav-link {
+  display: inline-block;
+  text-decoration: none;
+  background: #fff;
+  border: 1px solid #d9dce8;
+  border-radius: 6px;
+  color: #222;
+  padding: 6px 8px;
+  font-size: 14px;
+}
 .content {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(700px, 1fr);
@@ -143,6 +153,40 @@ button, input, select {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 12px;
+}
+
+.stock-title {
+  margin: 0;
+  font-size: 20px;
+}
+.stock-panel {
+  border: 1px solid #d9dce8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+.stock-table-wrap {
+  overflow: auto;
+}
+.stock-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.stock-table th,
+.stock-table td {
+  border-bottom: 1px solid #eceff8;
+  text-align: left;
+  padding: 8px 6px;
+  white-space: nowrap;
+}
+.stock-table .up {
+  color: #0a8a42;
+}
+.stock-table .down {
+  color: #c92c2c;
+}
+.stock-table .flat {
+  color: #666;
 }
 
 @media (max-width: 980px) {
