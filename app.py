@@ -78,10 +78,14 @@ async def stock_tick() -> JSONResponse:
 async def stock_broadcast_test() -> JSONResponse:
     async with stock_lock:
         text = _stock_broadcast_text(stock_state.snapshot())
-    ok = await _send_discord_webhook(text)
+    ok, detail = await _send_discord_webhook(text)
     if not ok:
         return JSONResponse(
-            {"ok": False, "message": "Discord webhook unavailable. Check DISCORD_WEBHOOK_URL."},
+            {
+                "ok": False,
+                "message": "Discord webhook failed.",
+                "detail": detail,
+            },
             status_code=400,
         )
     return JSONResponse({"ok": True, "message": "Broadcast sent."})
@@ -117,11 +121,11 @@ async def _stock_tick_loop() -> None:
         await _send_discord_webhook(_stock_broadcast_text(snapshot))
 
 
-async def _send_discord_webhook(message: str) -> bool:
+async def _send_discord_webhook(message: str) -> tuple[bool, str]:
     if not _discord_webhook_url:
-        return False
+        return False, "DISCORD_WEBHOOK_URL is empty."
 
-    def _post() -> bool:
+    def _post() -> tuple[bool, str]:
         payload = json.dumps({"content": message}).encode("utf-8")
         req = urlrequest.Request(
             _discord_webhook_url,
@@ -131,9 +135,25 @@ async def _send_discord_webhook(message: str) -> bool:
         )
         try:
             with urlrequest.urlopen(req, timeout=15) as resp:
-                return 200 <= int(resp.status) < 300
-        except (urlerror.URLError, urlerror.HTTPError, TimeoutError):
-            return False
+                status = int(resp.status)
+                if 200 <= status < 300:
+                    return True, f"HTTP {status}"
+                return False, f"HTTP {status}"
+        except urlerror.HTTPError as exc:
+            try:
+                body = exc.read().decode("utf-8", errors="replace").strip()
+            except Exception:
+                body = ""
+            detail = f"HTTP {exc.code}"
+            if body:
+                detail += f" - {body[:300]}"
+            return False, detail
+        except urlerror.URLError as exc:
+            return False, f"Network error: {exc.reason}"
+        except TimeoutError:
+            return False, "Request timeout."
+        except Exception as exc:
+            return False, f"Unexpected error: {exc}"
 
     return await asyncio.to_thread(_post)
 
