@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 import socketio
 
@@ -26,6 +26,12 @@ state_lock = asyncio.Lock()
 @fastapi_app.get("/")
 async def index() -> FileResponse:
     return FileResponse(str(STATIC_DIR / "index.html"))
+
+
+@fastapi_app.head("/")
+async def index_head() -> Response:
+    # Explicit HEAD support for uptime checks.
+    return Response(status_code=200)
 
 
 async def emit_state() -> None:
