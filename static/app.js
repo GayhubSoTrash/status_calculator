@@ -50,6 +50,15 @@ function floor0(n) {
   return Math.max(0, Math.floor(n + 1e-9));
 }
 
+/** Count A from speed spec "XdY+Z/A"; default 1 if no slash. */
+function parseSpeedCount(spec) {
+  const t = String(spec).trim();
+  if (!t.includes("/")) return 1;
+  const last = t.split("/").pop().trim();
+  const a = parseInt(last, 10);
+  return Number.isFinite(a) && a > 0 ? a : 1;
+}
+
 function openAttackModal(entity) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -354,6 +363,7 @@ function renderEntity(entity) {
   name.textContent = `名稱: ${entity.name}`;
   head.appendChild(name);
   const actions = document.createElement("div");
+  actions.appendChild(rowButton("複製", () => emit("duplicate_entity", { entityId: entity.id })));
   actions.appendChild(rowButton("攻擊", () => openAttackModal(entity)));
   actions.appendChild(rowButton("刪除目標", () => emit("delete_entity", { entityId: entity.id })));
   head.appendChild(actions);
@@ -414,6 +424,63 @@ function renderEntity(entity) {
   mpMaxInput.addEventListener("change", syncStats);
 
   panel.appendChild(stats);
+
+  const speedRow = document.createElement("div");
+  speedRow.className = "stats";
+  speedRow.style.marginTop = "6px";
+  speedRow.style.flexWrap = "wrap";
+  speedRow.style.alignItems = "center";
+  speedRow.style.gap = "4px";
+  const speedLabel = document.createElement("span");
+  speedLabel.textContent = "速度:";
+  const speedSpecInp = document.createElement("input");
+  speedSpecInp.type = "text";
+  speedSpecInp.value = entity.speed_spec || "1d6";
+  speedSpecInp.style.width = "140px";
+  const speedEq = document.createElement("span");
+  speedEq.textContent = "=";
+  speedRow.appendChild(speedLabel);
+  speedRow.appendChild(speedSpecInp);
+  speedRow.appendChild(speedEq);
+  const vals = Array.isArray(entity.speed_values) ? entity.speed_values : [];
+  const speedValInputs = [];
+  for (let i = 0; i < vals.length; i++) {
+    const vi = document.createElement("input");
+    vi.type = "number";
+    vi.value = vals[i];
+    vi.step = "1";
+    vi.style.width = "56px";
+    speedValInputs.push(vi);
+    speedRow.appendChild(vi);
+    if (i < vals.length - 1) {
+      const sep = document.createElement("span");
+      sep.textContent = ",";
+      speedRow.appendChild(sep);
+    }
+  }
+  function syncSpeedFromInputs() {
+    const spec = speedSpecInp.value.trim();
+    const nums = speedValInputs.map((inp) => Number(inp.value));
+    if (nums.some((v) => Number.isNaN(v))) return;
+    emit("update_entity_speed", {
+      entityId: entity.id,
+      speed_spec: spec,
+      speed_values: nums,
+    });
+  }
+  speedSpecInp.addEventListener("change", () => {
+    const spec = speedSpecInp.value.trim();
+    const a = parseSpeedCount(spec);
+    const nums = speedValInputs.map((inp) => Number(inp.value));
+    let next = nums.filter((v) => !Number.isNaN(v));
+    while (next.length < a) next.push(0);
+    next = next.slice(0, a);
+    emit("update_entity_speed", { entityId: entity.id, speed_spec: spec, speed_values: next });
+  });
+  for (const inp of speedValInputs) {
+    inp.addEventListener("change", syncSpeedFromInputs);
+  }
+  panel.appendChild(speedRow);
 
   if (entity.is_staggered) {
     const s = document.createElement("div");
@@ -573,10 +640,9 @@ function openCreateEntityModal() {
   function submitCreate() {
     const payload = {
       name: name.value.trim(),
+      speed_spec: speedSpec.value.trim(),
       hp_max: Number(hpMax.value),
-      hp_current: Number(hpCur.value),
       mp_max: Number(mpMax.value),
-      mp_current: Number(mpCur.value),
       slash_damage_res: Number(slashDamageRes.value),
       slash_stagger_res: Number(slashStaggerRes.value),
       piercing_damage_res: Number(piercingDamageRes.value),
@@ -586,9 +652,7 @@ function openCreateEntityModal() {
     };
     const nums = [
       payload.hp_max,
-      payload.hp_current,
       payload.mp_max,
-      payload.mp_current,
       payload.slash_damage_res,
       payload.slash_stagger_res,
       payload.piercing_damage_res,
@@ -598,6 +662,10 @@ function openCreateEntityModal() {
     ];
     if (!payload.name) {
       alert("請輸入目標名稱。");
+      return;
+    }
+    if (!payload.speed_spec) {
+      alert("請輸入速度 (例: 1d6+1 或 1d6+1/3)。");
       return;
     }
     if (nums.some((v) => Number.isNaN(v))) {
@@ -639,9 +707,8 @@ function openCreateEntityModal() {
   }
 
   const name = makeField("目標名稱", "", "text");
-  const hpCur = makeField("HP當前值", 100, "number", "1");
+  const speedSpec = makeField("速度 (XdY+Z 或 XdY+Z/A)", "1d6", "text");
   const hpMax = makeField("HP最大值", 100, "number", "1");
-  const mpCur = makeField("MP當前值", 100, "number", "1");
   const mpMax = makeField("MP最大值", 100, "number", "1");
   const slashDamageRes = makeField("斬擊-傷害抗性", 1.0, "number", "0.1");
   const slashStaggerRes = makeField("斬擊-混亂抗性", 1.0, "number", "0.1");

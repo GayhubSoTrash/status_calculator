@@ -71,6 +71,10 @@ class Entity:
     pending: Debuff = field(default_factory=Debuff)
     debuff_combo_choice: str = DEBUFF_OPTIONS[0]
 
+    # Speed: spec "XdY+Z/A" (omit /A for A=1); A independent rolls of the dice expression.
+    speed_spec: str = "1d6"
+    speed_values: list[int] = field(default_factory=list)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -81,6 +85,8 @@ class Entity:
             "hp_max": self.hp_max,
             "mp_current": self.mp_current,
             "mp_max": self.mp_max,
+            "speed_spec": self.speed_spec,
+            "speed_values": list(self.speed_values),
             "resistances": {
                 "slash_damage_res": self.slash_damage_res,
                 "slash_stagger_res": self.slash_stagger_res,
@@ -120,9 +126,8 @@ class GameState:
     def create_entity(
         self,
         name: str,
-        hp_current: int,
+        speed_spec: str,
         hp_max: int,
-        mp_current: int,
         mp_max: int,
         slash_damage_res: float,
         slash_stagger_res: float,
@@ -136,10 +141,7 @@ class GameState:
             raise ValueError("目標名稱不能為空。")
         if hp_max <= 0 or mp_max <= 0:
             raise ValueError("HP/MP 最大值必須大於 0。")
-        if hp_current < 0 or mp_current < 0:
-            raise ValueError("HP/MP 當前值不能小於 0。")
-        hp_current = min(hp_current, hp_max)
-        mp_current = min(mp_current, mp_max)
+        self._parse_speed_spec(str(speed_spec).strip())
         for v in [
             slash_damage_res,
             slash_stagger_res,
@@ -151,9 +153,10 @@ class GameState:
             if v < 0:
                 raise ValueError("抗性值不能小於 0。")
         ent = Entity(id=self._next_id, name=name)
-        ent.hp_current = hp_current
+        ent.speed_spec = str(speed_spec).strip()
+        ent.hp_current = hp_max
         ent.hp_max = hp_max
-        ent.mp_current = mp_current
+        ent.mp_current = mp_max
         ent.mp_max = mp_max
         ent.slash_damage_res = float(slash_damage_res)
         ent.slash_stagger_res = float(slash_stagger_res)
@@ -163,6 +166,7 @@ class GameState:
         ent.blunt_stagger_res = float(blunt_stagger_res)
         self._next_id += 1
         self.entities.append(ent)
+        self._roll_all_speeds(ent)
 
     def delete_entity(self, entity_id: int) -> None:
         self.entities = [e for e in self.entities if e.id != entity_id]
@@ -438,6 +442,103 @@ class GameState:
             return x
         return sum(random.randint(1, y) for _ in range(x))
 
+    def _parse_speed_spec(self, s: str) -> tuple[str, int]:
+        """
+        Parse 'XdY+Z/A' or 'XdY+Z'. Returns (dice_segment_for_roll, A).
+        A defaults to 1 if '/A' is omitted.
+        """
+        text = str(s).strip()
+        if not text:
+            raise ValueError("速度規格不能為空。")
+        if "/" in text:
+            dice_part, a_part = text.rsplit("/", 1)
+            dice_part = dice_part.strip()
+            a_part = a_part.strip()
+            if not dice_part:
+                raise ValueError("速度規格格式錯誤。")
+            try:
+                a = int(a_part)
+            except ValueError as exc:
+                raise ValueError("速度數量 A 必須為正整數。") from exc
+            if a <= 0:
+                raise ValueError("速度數量 A 必須為正整數。")
+        else:
+            dice_part = text
+            a = 1
+        self._parse_dice(dice_part)
+        return (dice_part, a)
+
+    def _single_speed_roll(self, dice_part: str) -> int:
+        kind, x, y, offset = self._parse_dice(dice_part.strip())
+        r = self._roll_dice_sum(x, y)
+        if kind == "dice":
+            return r + offset
+        return r
+
+    def _roll_all_speeds(self, ent: Entity) -> None:
+        dice_part, count = self._parse_speed_spec(ent.speed_spec)
+        ent.speed_values = [self._single_speed_roll(dice_part) for _ in range(count)]
+        parts = "、".join(str(v) for v in ent.speed_values)
+        self._append_history(f"\"{ent.name}\" 的速度為 {parts}")
+
+    def _next_duplicate_name(self, source_name: str) -> str:
+        base = source_name.strip()
+        used = {e.name for e in self.entities}
+        candidate = f"{base} (複製)"
+        if candidate not in used:
+            return candidate
+        n = 2
+        while True:
+            c = f"{base} (複製{n})"
+            if c not in used:
+                return c
+            n += 1
+
+    def update_entity_speed(self, entity_id: int, speed_spec: str, speed_values: list[Any]) -> None:
+        ent = self._get_entity(entity_id)
+        spec = str(speed_spec).strip()
+        _, a = self._parse_speed_spec(spec)
+        try:
+            vals = [int(x) for x in speed_values]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("速度數值必須為整數。") from exc
+        if len(vals) != a:
+            raise ValueError("速度數值數量必須與速度規格中的數量一致。")
+        for v in vals:
+            if v < 0:
+                raise ValueError("速度值不能小於 0。")
+        ent.speed_spec = spec
+        ent.speed_values = vals
+
+    def duplicate_entity(self, entity_id: int) -> None:
+        src = self._get_entity(entity_id)
+        new_name = self._next_duplicate_name(src.name)
+        ent = Entity(
+            id=self._next_id,
+            name=new_name,
+            damage=src.damage,
+            stager=src.stager,
+            hp_current=src.hp_current,
+            hp_max=src.hp_max,
+            mp_current=src.mp_current,
+            mp_max=src.mp_max,
+            slash_damage_res=src.slash_damage_res,
+            slash_stagger_res=src.slash_stagger_res,
+            piercing_damage_res=src.piercing_damage_res,
+            piercing_stagger_res=src.piercing_stagger_res,
+            blunt_damage_res=src.blunt_damage_res,
+            blunt_stagger_res=src.blunt_stagger_res,
+            is_staggered=src.is_staggered,
+            stagger_recover_turn=src.stagger_recover_turn,
+            debuff=Debuff(**src.debuff.as_dict()),
+            pending=Debuff(**src.pending.as_dict()),
+            debuff_combo_choice=src.debuff_combo_choice,
+            speed_spec=src.speed_spec,
+            speed_values=list(src.speed_values),
+        )
+        self._next_id += 1
+        self.entities.append(ent)
+
     def _resolve_attack_resistances(
         self,
         ent: Entity,
@@ -630,6 +731,8 @@ class GameState:
             self._apply_turn_end_for_entity(ent)
             self._clear_turn_end_temporary_stacks(ent)
         self._append_history(f"-------第{self.current_turn + 1}幕開始-------")
+        for ent in self.entities:
+            self._roll_all_speeds(ent)
         for ent in self.entities:
             self._flush_pending_debuffs(ent)
         self.current_turn += 1
@@ -948,6 +1051,12 @@ class GameState:
 
     def _entity_from_dict(self, raw: dict[str, Any]) -> Entity:
         res = raw.get("resistances", {})
+        sv_raw = raw.get("speed_values")
+        if sv_raw is not None:
+            speed_values = [int(x) for x in list(sv_raw)]
+        else:
+            legacy = raw.get("speed_value")
+            speed_values = [int(legacy)] if legacy is not None else []
         ent = Entity(
             id=int(raw.get("id", 0)),
             name=str(raw.get("name", "")),
@@ -968,6 +1077,8 @@ class GameState:
             debuff=self._debuff_from_dict(raw.get("debuff", {})),
             pending=self._debuff_from_dict(raw.get("pending", {})),
             debuff_combo_choice=self._normalize_choice(str(raw.get("debuff_combo_choice", DEBUFF_OPTIONS[0]))),
+            speed_spec=str(raw.get("speed_spec", "1d6")),
+            speed_values=speed_values,
         )
         if ent.stagger_recover_turn is not None:
             ent.stagger_recover_turn = int(ent.stagger_recover_turn)

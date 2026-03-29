@@ -70,9 +70,8 @@ async def create_entity(sid: str, payload: dict[str, Any]) -> None:
         async with state_lock:
             state.create_entity(
                 str(payload.get("name", "")),
-                int(payload.get("hp_current", 0)),
+                str(payload.get("speed_spec", "1d6")),
                 int(payload.get("hp_max", 0)),
-                int(payload.get("mp_current", 0)),
                 int(payload.get("mp_max", 0)),
                 float(payload.get("slash_damage_res", 0)),
                 float(payload.get("slash_stagger_res", 0)),
@@ -248,6 +247,32 @@ async def update_entity_resistances(sid: str, payload: dict[str, Any]) -> None:
                 float(payload.get("blunt_damage_res", 0)),
                 float(payload.get("blunt_stagger_res", 0)),
             )
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def update_entity_speed(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            raw_vals = payload.get("speed_values", [])
+            state.update_entity_speed(
+                _entity_id(payload),
+                str(payload.get("speed_spec", "")),
+                list(raw_vals) if isinstance(raw_vals, list) else [],
+            )
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
+async def duplicate_entity(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            state.record_undo_checkpoint("複製目標")
+            state.duplicate_entity(_entity_id(payload))
             await emit_state()
     except Exception as exc:
         await sio.emit("action_error", {"message": str(exc)}, room=sid)
