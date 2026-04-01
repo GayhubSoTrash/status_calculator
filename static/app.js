@@ -25,6 +25,7 @@ const debuffLabels = {
   Protection: "保護",
   StaggerProtection: "振奮",
   Vulnerable: "易損",
+  Paralyze: "麻痺",
 };
 
 function parseDiceRange(s) {
@@ -162,6 +163,28 @@ function openAttackModal(entity) {
   damageType.appendChild(optionBlunt);
   damageType.value = "斬擊";
   toggleRow.appendChild(damageType);
+
+  const makeDowngradeSelect = () => {
+    const s = document.createElement("select");
+    for (let i = 0; i <= 5; i++) {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = String(i);
+      s.appendChild(o);
+    }
+    s.value = "0";
+    return s;
+  };
+  const dmgDowngradeLabel = document.createElement("span");
+  dmgDowngradeLabel.textContent = "物理護甲等級下降";
+  const dmgDowngrade = makeDowngradeSelect();
+  const stgDowngradeLabel = document.createElement("span");
+  stgDowngradeLabel.textContent = "混亂護甲等級下降";
+  const stgDowngrade = makeDowngradeSelect();
+  toggleRow.appendChild(dmgDowngradeLabel);
+  toggleRow.appendChild(dmgDowngrade);
+  toggleRow.appendChild(stgDowngradeLabel);
+  toggleRow.appendChild(stgDowngrade);
   typeWrap.appendChild(toggleRow);
 
   form.appendChild(typeWrap);
@@ -220,6 +243,8 @@ function openAttackModal(entity) {
       fixedDamage: Number(fixedDamage.value || 0),
       fixedStagger: Number(fixedStagger.value || 0),
       damageType: damageType.value,
+      damageResistanceDowngrade: Number(dmgDowngrade.value || 0),
+      staggerResistanceDowngrade: Number(stgDowngrade.value || 0),
       criticalHit: crit.checked,
       dodgeFumble: dodge.checked,
       blackDamage: black.checked,
@@ -236,6 +261,8 @@ function openAttackModal(entity) {
     fixedDamage,
     fixedStagger,
     damageType,
+    dmgDowngrade,
+    stgDowngrade,
     crit,
     dodge,
     black,
@@ -262,6 +289,8 @@ function openAttackModal(entity) {
       fixedDamage: Number(fixedDamage.value || 0),
       fixedStagger: Number(fixedStagger.value || 0),
       damageType: damageType.value,
+      damageResistanceDowngrade: Number(dmgDowngrade.value || 0),
+      staggerResistanceDowngrade: Number(stgDowngrade.value || 0),
       criticalHit: crit.checked,
       dodgeFumble: dodge.checked,
       blackDamage: black.checked,
@@ -332,7 +361,7 @@ function renderDebuffControls(entity, key) {
   } else if (key === "Burn") {
     row.appendChild(rowButton("觸發燒傷(消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Burn", consume: true })));
     row.appendChild(rowButton("觸發燒傷 (不消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Burn", consume: false })));
-  } else if (key === "Protection" || key === "StaggerProtection" || key === "Vulnerable") {
+  } else if (key === "Protection" || key === "StaggerProtection" || key === "Vulnerable" || key === "Paralyze") {
     // Turn-based passive statuses: cannot be activated manually.
   } else {
     row.appendChild(rowButton(`觸發${debuffLabels[key]}`, () => emit("activate_debuff", { entityId: entity.id, debuffKey: key })));
@@ -585,6 +614,7 @@ function renderEntity(entity) {
     "Protection",
     "StaggerProtection",
     "Vulnerable",
+    "Paralyze",
   ];
   const hasPending = pendingKeys.some((k) => entity.pending[k] > 0);
   if (hasPending) {
@@ -609,6 +639,7 @@ function renderEntity(entity) {
     "Protection",
     "StaggerProtection",
     "Vulnerable",
+    "Paralyze",
   ];
   for (const key of keys) {
     const row = renderDebuffControls(entity, key);

@@ -7,8 +7,9 @@ import re
 from typing import Any
 
 
-DEBUFF_OPTIONS = ("震顫", "燒傷", "出血", "破裂", "腐蝕", "超高溫", "保護", "振奮", "易損")
+DEBUFF_OPTIONS = ("震顫", "燒傷", "出血", "破裂", "腐蝕", "超高溫", "保護", "振奮", "易損", "麻痺")
 MAX_UNDO_STEPS = 3
+RESISTANCE_LEVELS = (0.0, 0.25, 0.5, 1.0, 1.5, 2.0)
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Debuff:
     Protection: int = 0
     StaggerProtection: int = 0
     Vulnerable: int = 0
+    Paralyze: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -36,6 +38,7 @@ class Debuff:
             "Protection": self.Protection,
             "StaggerProtection": self.StaggerProtection,
             "Vulnerable": self.Vulnerable,
+            "Paralyze": self.Paralyze,
         }
 
 
@@ -234,6 +237,8 @@ class GameState:
         fixed_damage: float,
         fixed_stagger: float,
         damage_type: str,
+        damage_resistance_downgrade: int,
+        stagger_resistance_downgrade: int,
         critical_hit: bool,
         dodge_fumble: bool,
         black_damage: bool,
@@ -249,7 +254,12 @@ class GameState:
 
         damage_type_key = self._normalize_damage_type_key(damage_type)
         base_damage_res, base_stagger_res = self._resolve_attack_resistances(
-            ent, damage_type_key, pre_staggered, black_damage
+            ent,
+            damage_type_key,
+            pre_staggered,
+            black_damage,
+            damage_resistance_downgrade,
+            stagger_resistance_downgrade,
         )
 
         # Critical / dodge behavior on weapon roll only:
@@ -319,6 +329,8 @@ class GameState:
         fixed_damage: float,
         fixed_stagger: float,
         damage_type: str,
+        damage_resistance_downgrade: int,
+        stagger_resistance_downgrade: int,
         critical_hit: bool,
         dodge_fumble: bool,
         black_damage: bool,
@@ -330,7 +342,12 @@ class GameState:
         damage_type_key = self._normalize_damage_type_key(damage_type)
 
         base_damage_res, base_stagger_res = self._resolve_attack_resistances(
-            ent, damage_type_key, ent.is_staggered, black_damage
+            ent,
+            damage_type_key,
+            ent.is_staggered,
+            black_damage,
+            damage_resistance_downgrade,
+            stagger_resistance_downgrade,
         )
 
         if critical_hit and dodge_fumble:
@@ -545,6 +562,8 @@ class GameState:
         damage_type_key: str,
         pre_staggered: bool,
         black_damage: bool,
+        damage_resistance_downgrade: int = 0,
+        stagger_resistance_downgrade: int = 0,
     ) -> tuple[float, float]:
         if damage_type_key == "slash":
             base_damage_res = ent.slash_damage_res
@@ -567,7 +586,28 @@ class GameState:
             base_damage_res = mean_res
             base_stagger_res = mean_res
 
+        base_damage_res = self._apply_resistance_downgrade_levels(
+            base_damage_res, damage_resistance_downgrade
+        )
+        base_stagger_res = self._apply_resistance_downgrade_levels(
+            base_stagger_res, stagger_resistance_downgrade
+        )
+
         return base_damage_res, base_stagger_res
+
+    def _apply_resistance_downgrade_levels(self, value: float, downgrade_levels: int) -> float:
+        n = max(0, int(downgrade_levels))
+        if n <= 0:
+            return float(value)
+        start_idx = 0
+        for i, lvl in enumerate(RESISTANCE_LEVELS):
+            if value <= lvl:
+                start_idx = i
+                break
+        else:
+            start_idx = len(RESISTANCE_LEVELS) - 1
+        end_idx = min(start_idx + n, len(RESISTANCE_LEVELS) - 1)
+        return float(RESISTANCE_LEVELS[end_idx])
 
     def _enter_stagger_state(self, ent: Entity) -> None:
         if ent.is_staggered:
@@ -707,7 +747,7 @@ class GameState:
             self._corrosion_activation(ent)
         elif debuff_key == "UTH":
             self._uth_activation(ent)
-        elif debuff_key in {"Protection", "StaggerProtection", "Vulnerable"}:
+        elif debuff_key in {"Protection", "StaggerProtection", "Vulnerable", "Paralyze"}:
             raise ValueError("此效果不能手動觸發。")
         else:
             raise ValueError("未知減益。")
@@ -760,6 +800,7 @@ class GameState:
             "Protection",
             "StaggerProtection",
             "Vulnerable",
+            "Paralyze",
         }:
             raise ValueError("未知減益。")
         current = getattr(target, debuff_key)
@@ -837,6 +878,8 @@ class GameState:
             target.StaggerProtection += 1
         elif choice == "易損":
             target.Vulnerable += 1
+        elif choice == "麻痺":
+            target.Paralyze += 1
 
     def _burn_activation(self, ent: Entity, consume: bool = True) -> None:
         if ent.debuff.Burn > 0:
@@ -998,6 +1041,9 @@ class GameState:
         if p.Vulnerable > 0:
             d.Vulnerable += p.Vulnerable
             self._record_next_turn_gain(ent, "易損", p.Vulnerable, d.Vulnerable)
+        if p.Paralyze > 0:
+            d.Paralyze += p.Paralyze
+            self._record_next_turn_gain(ent, "麻痺", p.Paralyze, d.Paralyze)
         ent.pending = Debuff()
 
     def _apply_turn_end_for_entity(self, ent: Entity) -> None:
@@ -1020,6 +1066,7 @@ class GameState:
         ent.debuff.Protection = 0
         ent.debuff.StaggerProtection = 0
         ent.debuff.Vulnerable = 0
+        ent.debuff.Paralyze = 0
 
     def _export_state(self) -> dict[str, Any]:
         return {
@@ -1047,6 +1094,7 @@ class GameState:
             Protection=int(raw.get("Protection", 0)),
             StaggerProtection=int(raw.get("StaggerProtection", 0)),
             Vulnerable=int(raw.get("Vulnerable", 0)),
+            Paralyze=int(raw.get("Paralyze", 0)),
         )
 
     def _entity_from_dict(self, raw: dict[str, Any]) -> Entity:
