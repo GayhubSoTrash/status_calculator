@@ -147,6 +147,7 @@ function openAttackModal(entity) {
       s.appendChild(o);
     }
     s.value = "0";
+    s.style.width = "86px";
     return s;
   };
 
@@ -164,26 +165,32 @@ function openAttackModal(entity) {
   damageType.appendChild(optionPiercing);
   damageType.appendChild(optionBlunt);
   damageType.value = "斬擊";
-  addField("傷害類型", damageType);
+  damageType.style.width = "86px";
 
   const dmgDowngrade = makeDowngradeSelect();
-  addField("物理護甲等級下降", dmgDowngrade);
-
   const stgDowngrade = makeDowngradeSelect();
-  addField("混亂護甲等級下降", stgDowngrade);
-
   const typeWrap = document.createElement("div");
   typeWrap.style.gridColumn = "1 / -1";
   typeWrap.className = "field";
   const typeLabel = document.createElement("label");
-  typeLabel.textContent = "攻擊選項";
+  typeLabel.textContent = "傷害類型 / 護甲等級下降";
   typeWrap.appendChild(typeLabel);
 
-  const toggleRow = document.createElement("div");
-  toggleRow.className = "toggle-row";
-
-  typeWrap.appendChild(toggleRow);
-
+  const typeRow = document.createElement("div");
+  typeRow.className = "toggle-row";
+  const dmgTypeText = document.createElement("span");
+  dmgTypeText.textContent = "傷害類型";
+  const dmgDownText = document.createElement("span");
+  dmgDownText.textContent = "物理下降";
+  const stgDownText = document.createElement("span");
+  stgDownText.textContent = "混亂下降";
+  typeRow.appendChild(dmgTypeText);
+  typeRow.appendChild(damageType);
+  typeRow.appendChild(dmgDownText);
+  typeRow.appendChild(dmgDowngrade);
+  typeRow.appendChild(stgDownText);
+  typeRow.appendChild(stgDowngrade);
+  typeWrap.appendChild(typeRow);
   form.appendChild(typeWrap);
 
   const toggles = document.createElement("div");
