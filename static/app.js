@@ -138,15 +138,17 @@ function openAttackModal(entity) {
   addField("固定傷害", fixedDamage);
   addField("固定混亂", fixedStagger);
 
-  const typeWrap = document.createElement("div");
-  typeWrap.style.gridColumn = "1 / -1";
-  typeWrap.className = "field";
-  const typeLabel = document.createElement("label");
-  typeLabel.textContent = "傷害類型";
-  typeWrap.appendChild(typeLabel);
-
-  const toggleRow = document.createElement("div");
-  toggleRow.className = "toggle-row";
+  const makeDowngradeSelect = () => {
+    const s = document.createElement("select");
+    for (let i = 0; i <= 5; i++) {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = String(i);
+      s.appendChild(o);
+    }
+    s.value = "0";
+    return s;
+  };
 
   const damageType = document.createElement("select");
   const optionSlash = document.createElement("option");
@@ -162,29 +164,24 @@ function openAttackModal(entity) {
   damageType.appendChild(optionPiercing);
   damageType.appendChild(optionBlunt);
   damageType.value = "斬擊";
-  toggleRow.appendChild(damageType);
+  addField("傷害類型", damageType);
 
-  const makeDowngradeSelect = () => {
-    const s = document.createElement("select");
-    for (let i = 0; i <= 5; i++) {
-      const o = document.createElement("option");
-      o.value = String(i);
-      o.textContent = String(i);
-      s.appendChild(o);
-    }
-    s.value = "0";
-    return s;
-  };
-  const dmgDowngradeLabel = document.createElement("span");
-  dmgDowngradeLabel.textContent = "物理護甲等級下降";
   const dmgDowngrade = makeDowngradeSelect();
-  const stgDowngradeLabel = document.createElement("span");
-  stgDowngradeLabel.textContent = "混亂護甲等級下降";
+  addField("物理護甲等級下降", dmgDowngrade);
+
   const stgDowngrade = makeDowngradeSelect();
-  toggleRow.appendChild(dmgDowngradeLabel);
-  toggleRow.appendChild(dmgDowngrade);
-  toggleRow.appendChild(stgDowngradeLabel);
-  toggleRow.appendChild(stgDowngrade);
+  addField("混亂護甲等級下降", stgDowngrade);
+
+  const typeWrap = document.createElement("div");
+  typeWrap.style.gridColumn = "1 / -1";
+  typeWrap.className = "field";
+  const typeLabel = document.createElement("label");
+  typeLabel.textContent = "攻擊選項";
+  typeWrap.appendChild(typeLabel);
+
+  const toggleRow = document.createElement("div");
+  toggleRow.className = "toggle-row";
+
   typeWrap.appendChild(toggleRow);
 
   form.appendChild(typeWrap);
