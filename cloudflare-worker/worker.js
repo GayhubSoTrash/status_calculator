@@ -154,11 +154,25 @@ export default {
     return json({ ok: false, message: "Not found." }, 404);
   },
 
-  async scheduled(_event, env, _ctx) {
+  async scheduled(_event, env, ctx) {
     const snapshot = await getOrInitSnapshot(env);
     const next = applyAutoTick(snapshot);
     await saveSnapshot(env, next);
-    await broadcastSnapshot(env, next);
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const result = await broadcastSnapshot(env, next);
+          if (!result.ok) {
+            console.error(
+              "[stock-cron] broadcast failed:",
+              result.message || result.status || "unknown"
+            );
+          }
+        } catch (err) {
+          console.error("[stock-cron] broadcast error:", err);
+        }
+      })()
+    );
   },
 };
 
