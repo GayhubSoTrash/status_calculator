@@ -906,11 +906,6 @@ class GameState:
             )
             self._enter_stagger_state_if_needed(ent)
 
-    def _bleed_decay(self, ent: Entity) -> None:
-        if ent.debuff.Bleed > 0:
-            ent.debuff.Bleed = math.ceil(ent.debuff.Bleed * 2 / 3)
-            self._record_settlement_decay(ent, "出血", ent.debuff.Bleed)
-
     def _rupture_activation(self, ent: Entity) -> None:
         if ent.debuff.Rupture > 0:
             before_stack = ent.debuff.Rupture
@@ -1051,7 +1046,6 @@ class GameState:
         self._uth_activation(ent)
         self._burn_activation(ent, True)
         self._tremor_burst(ent, True)
-        self._bleed_decay(ent)
         self._rupture_decay(ent)
         self._corrosion_decay(ent)
 
@@ -1067,6 +1061,7 @@ class GameState:
         ent.debuff.StaggerProtection = 0
         ent.debuff.Vulnerable = 0
         ent.debuff.Paralyze = 0
+        ent.debuff.Bleed = 0
 
     def _export_state(self) -> dict[str, Any]:
         return {

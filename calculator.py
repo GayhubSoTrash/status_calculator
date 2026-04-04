@@ -82,11 +82,6 @@ def bleed_activation(entity:entity):
             stack_after=entity.debuff.Bleed,
         )
 
-def bleed_decay(entity:entity):
-    if(entity.debuff.Bleed > 0):
-        entity.debuff.Bleed = math.ceil(entity.debuff.Bleed *2/3)
-        _record_settlement_decay(entity, "出血", entity.debuff.Bleed)
-
 def rupture_activation(entity:entity):
     if(entity.debuff.Rupture > 0):
         before_stack = entity.debuff.Rupture
@@ -153,9 +148,10 @@ def _record_next_turn_gain(ent: entity, debuff_name: str, gained_stack: int, tot
 def _apply_turn_end_for_entity(e: entity):
     burn_activation(e, True)
     tremor_burst(e, True)
-    bleed_decay(e)
     rupture_decay(e)
     corrosion_decay(e)
+    # Matches game_state: Bleed does not decay at settlement; stacks clear when the curtain ends.
+    e.debuff.Bleed = 0
 
 
 def _inc_tremor_on_debuff(e: entity):
