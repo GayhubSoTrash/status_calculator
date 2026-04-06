@@ -235,6 +235,17 @@ async def update_entity_stats(sid: str, payload: dict[str, Any]) -> None:
 
 
 @sio.event
+async def update_entity_name(sid: str, payload: dict[str, Any]) -> None:
+    try:
+        async with state_lock:
+            state.record_undo_checkpoint("修改目標名稱")
+            state.update_entity_name(_entity_id(payload), str(payload.get("name", "")))
+            await emit_state()
+    except Exception as exc:
+        await sio.emit("action_error", {"message": str(exc)}, room=sid)
+
+
+@sio.event
 async def update_entity_resistances(sid: str, payload: dict[str, Any]) -> None:
     try:
         async with state_lock:

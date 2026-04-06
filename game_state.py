@@ -197,6 +197,13 @@ class GameState:
         ent.hp_current = min(hp_current, hp_max)
         ent.mp_current = min(mp_current, mp_max)
 
+    def update_entity_name(self, entity_id: int, name: str) -> None:
+        ent = self._get_entity(entity_id)
+        next_name = str(name).strip()
+        if not next_name:
+            raise ValueError("目標名稱不能為空。")
+        ent.name = next_name
+
     def update_entity_resistances(
         self,
         entity_id: int,
@@ -263,13 +270,13 @@ class GameState:
         )
 
         # Critical / dodge behavior on weapon roll only:
-        # - critical: use max roll and *2
+        # - critical: use max roll (no doubling)
         # - dodge_fumble: *2 on weapon roll
         # - both: max roll *4
         if critical_hit and dodge_fumble:
             weapon_used = weapon_max * 4
         elif critical_hit:
-            weapon_used = weapon_max * 2
+            weapon_used = weapon_max
         elif dodge_fumble:
             weapon_used = weapon_roll * 2
         else:
@@ -294,6 +301,56 @@ class GameState:
         final_damage = max(0, int(math.floor(damage_calc + 1e-9)))
         final_stagger = max(0, int(math.floor(stagger_calc + 1e-9)))
 
+        # Build the possible final-damage bounds for this exact attack context
+        # so we can annotate logs on true min/max outcomes.
+        if critical_hit and dodge_fumble:
+            weapon_min_used = weapon_max * 4
+            weapon_max_used = weapon_max * 4
+        elif critical_hit:
+            weapon_min_used = weapon_max
+            weapon_max_used = weapon_max
+        elif dodge_fumble:
+            weapon_min_used = weapon_min * 2
+            weapon_max_used = weapon_max * 2
+        else:
+            weapon_min_used = weapon_min
+            weapon_max_used = weapon_max
+
+        possible_min_damage = max(
+            0,
+            int(
+                math.floor(
+                    (
+                        (weapon_min_used + dmg_mod_used + attack_extra_damage)
+                        * damage_multiplier
+                        * base_damage_res
+                        + fixed_damage
+                    )
+                    + 1e-9
+                )
+            ),
+        )
+        possible_max_damage = max(
+            0,
+            int(
+                math.floor(
+                    (
+                        (weapon_max_used + dmg_mod_used + attack_extra_damage)
+                        * damage_multiplier
+                        * base_damage_res
+                        + fixed_damage
+                    )
+                    + 1e-9
+                )
+            ),
+        )
+        damage_extreme_tag = ""
+        if possible_max_damage > possible_min_damage:
+            if final_damage == possible_max_damage:
+                damage_extreme_tag = "【最大傷害】"
+            elif final_damage == possible_min_damage:
+                damage_extreme_tag = "【最小傷害】"
+
         self._apply_damage_stagger_to_entity(
             ent,
             damage_delta=final_damage,
@@ -306,7 +363,7 @@ class GameState:
         damage_type_label = self._damage_type_label(damage_type_key)
         self._append_history(
             f"\"{ent.name}\" 受到 \"{final_damage}/{final_stagger}\" 點{damage_type_label}傷害，"
-            f"總計傷害為\"{ent.damage}/{ent.stager}\""
+            f"總計傷害為\"{ent.damage}/{ent.stager}\"{damage_extreme_tag}"
         )
 
         # Attack-triggered debuffs (rupture + corrosion).
@@ -354,8 +411,8 @@ class GameState:
             weapon_min_used = weapon_max * 4
             weapon_max_used = weapon_max * 4
         elif critical_hit:
-            weapon_min_used = weapon_max * 2
-            weapon_max_used = weapon_max * 2
+            weapon_min_used = weapon_max
+            weapon_max_used = weapon_max
         elif dodge_fumble:
             weapon_min_used = weapon_min * 2
             weapon_max_used = weapon_max * 2
@@ -740,9 +797,9 @@ class GameState:
         elif debuff_key == "Burn":
             self._burn_activation(ent, consume)
         elif debuff_key == "Bleed":
-            self._bleed_activation(ent)
+            self._bleed_activation(ent, consume)
         elif debuff_key == "Rupture":
-            self._rupture_activation(ent)
+            self._rupture_activation(ent, consume)
         elif debuff_key == "Corrosion":
             self._corrosion_activation(ent)
         elif debuff_key == "UTH":
@@ -894,25 +951,27 @@ class GameState:
             )
             self._enter_stagger_state_if_needed(ent)
 
-    def _bleed_activation(self, ent: Entity) -> None:
+    def _bleed_activation(self, ent: Entity, consume: bool = True) -> None:
         if ent.debuff.Bleed > 0:
             before_stack = ent.debuff.Bleed
             self._apply_damage_stagger_to_entity(
                 ent, damage_delta=ent.debuff.Bleed, stagger_delta=0, allow_stagger_entry=False
             )
-            ent.debuff.Bleed = math.ceil(ent.debuff.Bleed * 2 / 3)
+            if consume:
+                ent.debuff.Bleed = math.ceil(ent.debuff.Bleed * 2 / 3)
             self._record_activation(
                 ent, "出血", damage_delta=before_stack, stack_after=ent.debuff.Bleed
             )
             self._enter_stagger_state_if_needed(ent)
 
-    def _rupture_activation(self, ent: Entity) -> None:
+    def _rupture_activation(self, ent: Entity, consume: bool = True) -> None:
         if ent.debuff.Rupture > 0:
             before_stack = ent.debuff.Rupture
             self._apply_damage_stagger_to_entity(
                 ent, damage_delta=ent.debuff.Rupture, stagger_delta=0, allow_stagger_entry=False
             )
-            ent.debuff.Rupture = math.ceil(ent.debuff.Rupture * 2 / 3)
+            if consume:
+                ent.debuff.Rupture = math.ceil(ent.debuff.Rupture * 2 / 3)
             self._record_activation(
                 ent, "破裂", damage_delta=before_stack, stack_after=ent.debuff.Rupture
             )

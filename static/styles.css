@@ -200,3 +200,36 @@ button, input, select {
     height: 260px;
   }
 }
+
+/* Calculator-only dark theme (index.html adds body.calculator-theme). */
+body.calculator-theme {
+  background: #0e1117;
+  color: #e6edf3;
+}
+body.calculator-theme .entity,
+body.calculator-theme .history-pane,
+body.calculator-theme .modal {
+  background: #161b22;
+  border-color: #30363d;
+}
+body.calculator-theme #historyLog,
+body.calculator-theme .preview {
+  background: #0d1117;
+  color: #e6edf3;
+}
+body.calculator-theme .pending-title,
+body.calculator-theme .status,
+body.calculator-theme .field label {
+  color: #9da7b3;
+}
+body.calculator-theme button,
+body.calculator-theme input,
+body.calculator-theme select {
+  background: #21262d;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+}
+body.calculator-theme .stock-table td,
+body.calculator-theme .stock-table th {
+  border-bottom-color: #30363d;
+}

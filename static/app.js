@@ -365,6 +365,12 @@ function renderDebuffControls(entity, key) {
   } else if (key === "Burn") {
     row.appendChild(rowButton("觸發燒傷(消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Burn", consume: true })));
     row.appendChild(rowButton("觸發燒傷 (不消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Burn", consume: false })));
+  } else if (key === "Bleed") {
+    row.appendChild(rowButton("觸發出血(消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Bleed", consume: true })));
+    row.appendChild(rowButton("觸發出血 (不消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Bleed", consume: false })));
+  } else if (key === "Rupture") {
+    row.appendChild(rowButton("觸發破裂(消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Rupture", consume: true })));
+    row.appendChild(rowButton("觸發破裂 (不消耗)", () => emit("activate_debuff", { entityId: entity.id, debuffKey: "Rupture", consume: false })));
   } else if (key === "Protection" || key === "StaggerProtection" || key === "Vulnerable" || key === "Paralyze") {
     // Turn-based passive statuses: cannot be activated manually.
   } else {
@@ -396,6 +402,15 @@ function renderEntity(entity) {
   name.textContent = `名稱: ${entity.name}`;
   head.appendChild(name);
   const actions = document.createElement("div");
+  actions.appendChild(
+    rowButton("改名", () => {
+      const raw = window.prompt("請輸入新名稱", String(entity.name || ""));
+      if (raw === null) return;
+      const nextName = String(raw).trim();
+      if (!nextName) return;
+      emit("update_entity_name", { entityId: entity.id, name: nextName });
+    })
+  );
   actions.appendChild(rowButton("複製", () => emit("duplicate_entity", { entityId: entity.id })));
   actions.appendChild(rowButton("攻擊", () => openAttackModal(entity)));
   actions.appendChild(rowButton("刪除目標", () => emit("delete_entity", { entityId: entity.id })));
