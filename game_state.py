@@ -304,8 +304,8 @@ class GameState:
         # Build the possible final-damage bounds for this exact attack context
         # so we can annotate logs on true min/max outcomes.
         if critical_hit and dodge_fumble:
-            weapon_min_used = weapon_max * 4
-            weapon_max_used = weapon_max * 4
+            weapon_min_used = weapon_max * 2
+            weapon_max_used = weapon_max * 2
         elif critical_hit:
             weapon_min_used = weapon_max
             weapon_max_used = weapon_max
@@ -408,8 +408,8 @@ class GameState:
         )
 
         if critical_hit and dodge_fumble:
-            weapon_min_used = weapon_max * 4
-            weapon_max_used = weapon_max * 4
+            weapon_min_used = weapon_max * 2
+            weapon_max_used = weapon_max * 2
         elif critical_hit:
             weapon_min_used = weapon_max
             weapon_max_used = weapon_max
