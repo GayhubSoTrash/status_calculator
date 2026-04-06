@@ -272,9 +272,9 @@ class GameState:
         # Critical / dodge behavior on weapon roll only:
         # - critical: use max roll (no doubling)
         # - dodge_fumble: *2 on weapon roll
-        # - both: max roll *4
+        # - both: max roll *2
         if critical_hit and dodge_fumble:
-            weapon_used = weapon_max * 4
+            weapon_used = weapon_max * 2
         elif critical_hit:
             weapon_used = weapon_max
         elif dodge_fumble:
